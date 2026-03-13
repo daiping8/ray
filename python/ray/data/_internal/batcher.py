@@ -157,6 +157,35 @@ class Batcher(BatcherInterface):
         return batch
 
 
+class DynamicBatcher(Batcher):
+    """A Batcher that supports dynamically updating its batch size.
+
+    This is a thin wrapper around :class:`Batcher` that exposes an
+    ``update_bounds`` method, allowing external controllers to adjust
+    the effective batch size at runtime.
+    """
+
+    def __init__(self, batch_size: Optional[int], ensure_copy: bool = False):
+        super().__init__(batch_size=batch_size, ensure_copy=ensure_copy)
+        self._lower_bound = batch_size
+        self._upper_bound = batch_size
+
+    def update_bounds(self, lower_bound: int, upper_bound: int):
+        """Update the internal batch size bounds.
+
+        The effective batch size will be set to the midpoint of the
+        provided bounds.
+        """
+        if lower_bound <= 0 or upper_bound <= 0:
+            raise ValueError("Batch size bounds must be positive.")
+        if upper_bound < lower_bound:
+            raise ValueError("upper_bound must be >= lower_bound.")
+
+        self._lower_bound = lower_bound
+        self._upper_bound = upper_bound
+        self._batch_size = (lower_bound + upper_bound) // 2
+
+
 class ShufflingBatcher(BatcherInterface):
     """Chunks blocks into shuffled batches, using a local in-memory shuffle buffer."""
 

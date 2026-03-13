@@ -23,6 +23,8 @@ def batch_blocks(
     shuffle_buffer_min_size: Optional[int] = None,
     shuffle_seed: Optional[int] = None,
     ensure_copy: bool = False,
+    enable_dynamic_batching: bool = False,
+    target_latency_s: float = 5.0,
 ) -> Iterator[DataBatch]:
     """Create formatted batches of data from 1 or more blocks.
 
@@ -39,6 +41,8 @@ def batch_blocks(
             shuffle_buffer_min_size=shuffle_buffer_min_size,
             shuffle_seed=shuffle_seed,
             ensure_copy=ensure_copy,
+            enable_dynamic_batching=enable_dynamic_batching,
+            target_latency_s=target_latency_s,
         ),
         batch_format=batch_format,
         stats=stats,

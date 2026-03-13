@@ -309,6 +309,8 @@ def plan_udf_map_op(
             zero_copy_batch=op.zero_copy_batch,
             is_udf=True,
             output_block_size_option=output_block_size_option,
+            enable_dynamic_batching=op.enable_dynamic_batching,
+            target_latency_s=op.target_latency_s,
         )
 
     else:

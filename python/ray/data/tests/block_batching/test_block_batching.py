@@ -82,6 +82,23 @@ class TestBatchBlocks:
         assert batches[0]["foo"] == [0, 2, 4]
         assert batches[1]["foo"] == [6, 8, 10]
 
+    def test_dynamic_batching_basic(self):
+        """Smoke test for dynamic batching path."""
+        blocks = block_generator(num_rows=1, num_blocks=10)
+        batches = list(
+            batch_blocks(
+                blocks,
+                batch_size=2,
+                batch_format="numpy",
+                enable_dynamic_batching=True,
+                target_latency_s=0.001,
+            )
+        )
+
+        # We should still see all rows.
+        total = sum(len(b["foo"]) for b in batches)
+        assert total == 10
+
 
 if __name__ == "__main__":
     import sys

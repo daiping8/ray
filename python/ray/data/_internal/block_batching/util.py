@@ -7,7 +7,8 @@ from typing import Any, Callable, Generic, Iterator, List, Optional, Tuple, Type
 
 import ray
 from ray.actor import ActorHandle
-from ray.data._internal.batcher import Batcher, ShufflingBatcher
+from ray.data._internal.batcher import Batcher, DynamicBatcher, ShufflingBatcher
+from ray.data._internal.dynamic_batching import DynamicBatchManager
 from ray.data._internal.block_batching.interfaces import (
     Batch,
     BatchMetadata,
@@ -102,8 +103,30 @@ def blocks_to_batches(
     shuffle_buffer_min_size: Optional[int] = None,
     shuffle_seed: Optional[int] = None,
     ensure_copy: bool = False,
+    enable_dynamic_batching: bool = False,
+    target_latency_s: float = 5.0,
 ) -> Iterator[Batch]:
     """Given an iterator over blocks, returns an iterator over batches."""
+    if enable_dynamic_batching:
+        if shuffle_buffer_min_size is not None:
+            raise ValueError(
+                "Dynamic batching is currently incompatible with local shuffling. "
+                "Disable dynamic batching or local shuffle."
+            )
+        if batch_size is None:
+            raise ValueError(
+                "Dynamic batching requires an explicit initial batch_size. "
+                "Please set batch_size when enable_dynamic_batching=True."
+            )
+        return _DynamicBatchingIterator(
+            block_iter,
+            stats=stats,
+            initial_batch_size=batch_size,
+            drop_last=drop_last,
+            ensure_copy=ensure_copy,
+            target_latency_s=target_latency_s,
+        )
+
     return _BatchingIterator(
         block_iter,
         stats=stats,
@@ -186,6 +209,84 @@ class _BatchingIterator(Iterator[Batch]):
                 #   - There's nothing to yield anymore
                 #
                 # We stop the iteration
+                raise StopIteration
+
+
+class _DynamicBatchingIterator(Iterator[Batch]):
+    """Iterator that converts blocks to batches with dynamic batch sizing.
+
+    This iterator wraps a :class:`DynamicBatcher` and a
+    :class:`DynamicBatchManager` to adjust the batch size based on the
+    observed time to materialize each batch.
+    """
+
+    def __init__(
+        self,
+        block_iter: Iterator[Block],
+        stats: Optional[DatasetStats] = None,
+        initial_batch_size: int = 1,
+        drop_last: bool = False,
+        ensure_copy: bool = False,
+        target_latency_s: float = 5.0,
+    ):
+        if initial_batch_size <= 0:
+            raise ValueError("initial_batch_size must be positive.")
+
+        self._block_iter = block_iter
+        self._stats = stats
+        self._drop_last = drop_last
+        self._global_counter = 0
+        self._done_adding = False
+
+        self._batcher = DynamicBatcher(
+            batch_size=initial_batch_size, ensure_copy=ensure_copy
+        )
+        self._manager = DynamicBatchManager(
+            initial_batch_size=initial_batch_size,
+            target_latency_s=target_latency_s,
+            min_batch_size=1,
+            max_batch_size=None,
+        )
+
+    def __iter__(self) -> "_DynamicBatchingIterator":
+        return self
+
+    def __next__(self) -> Batch:
+        timer = self._stats.iter_next_batch_s.timer() if self._stats else nullcontext()
+
+        while True:
+            can_yield = self._batcher.has_batch() or (
+                self._batcher.has_any() and self._done_adding and not self._drop_last
+            )
+
+            if can_yield:
+                # Time the cost of building the next batch.
+                with timer:
+                    start = time.perf_counter()
+                    next_batch = self._batcher.next_batch()
+                    duration = time.perf_counter() - start
+
+                # Record the observation and update bounds.
+                batch_size = BlockAccessor.for_block(next_batch).num_rows()
+                self._manager.record_execution_stats(batch_size, duration)
+                lower, upper = self._manager.calculate_batch_size()
+                self._batcher.update_bounds(lower, upper)
+
+                res = Batch(
+                    metadata=BatchMetadata(batch_idx=self._global_counter),
+                    data=next_batch,
+                )
+                self._global_counter += 1
+                return res
+
+            if not self._done_adding:
+                try:
+                    block = next(self._block_iter)
+                    self._batcher.add(block)
+                except StopIteration:
+                    self._batcher.done_adding()
+                    self._done_adding = True
+            else:
                 raise StopIteration
 
 

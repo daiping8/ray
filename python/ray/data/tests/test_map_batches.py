@@ -61,6 +61,28 @@ def process_timestamp_data_batch_pandas(batch: pd.DataFrame) -> pd.DataFrame:
     return batch
 
 
+def test_map_batches_dynamic_batching_basic(
+    ray_start_regular_shared, target_max_block_size_infinite_or_default
+):
+    # Simple end-to-end test that dynamic batching can be enabled and
+    # produces correct results.
+    ds = ray.data.range(20)
+
+    def inc(batch: pd.DataFrame) -> pd.DataFrame:
+        batch["id"] = batch["id"] + 1
+        return batch
+
+    ds2 = ds.map_batches(
+        inc,
+        batch_size=4,
+        batch_format="pandas",
+        enable_dynamic_batching=True,
+        target_latency_s=0.001,
+    )
+    out = [row["id"] for row in ds2.take_all()]
+    assert sorted(out) == list(range(1, 21))
+
+
 def test_map_batches_basic(
     ray_start_regular_shared,
     tmp_path,

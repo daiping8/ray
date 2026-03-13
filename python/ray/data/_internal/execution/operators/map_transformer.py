@@ -319,6 +319,8 @@ class BatchMapTransformFn(MapTransformFn):
         batch_format: Optional[BatchFormat] = None,
         zero_copy_batch: bool = True,
         output_block_size_option: Optional[OutputBlockSizeOption] = None,
+        enable_dynamic_batching: bool = False,
+        target_latency_s: float = 5.0,
     ):
         super().__init__(
             input_type=MapTransformFnDataType.Batch,
@@ -332,6 +334,8 @@ class BatchMapTransformFn(MapTransformFn):
         self._ensure_copy = not zero_copy_batch and batch_size is not None
 
         self._batch_fn = batch_fn
+        self._enable_dynamic_batching = enable_dynamic_batching
+        self._target_latency_s = target_latency_s
 
     def _pre_process(self, blocks: Iterable[Block]) -> Iterable[MapTransformFnData]:
         # TODO make batch-udf zero-copy by default
@@ -343,6 +347,8 @@ class BatchMapTransformFn(MapTransformFn):
             batch_size=self._batch_size,
             batch_format=self._batch_format,
             ensure_copy=ensure_copy,
+            enable_dynamic_batching=self._enable_dynamic_batching,
+            target_latency_s=self._target_latency_s,
         )
 
     def _apply_transform(

@@ -497,6 +497,8 @@ class Dataset:
         concurrency: Optional[Union[int, Tuple[int, int], Tuple[int, int, int]]] = None,
         udf_modifying_row_count: bool = True,
         ray_remote_args_fn: Optional[Callable[[], Dict[str, Any]]] = None,
+        enable_dynamic_batching: bool = False,
+        target_latency_s: float = 5.0,
         **ray_remote_args,
     ) -> "Dataset":
         """Apply the given function to batches of data.
@@ -744,6 +746,8 @@ class Dataset:
             concurrency=concurrency,
             udf_modifying_row_count=udf_modifying_row_count,
             ray_remote_args_fn=ray_remote_args_fn,
+            enable_dynamic_batching=enable_dynamic_batching,
+            target_latency_s=target_latency_s,
             **ray_remote_args,
         )
 
@@ -765,6 +769,8 @@ class Dataset:
         concurrency: Optional[Union[int, Tuple[int, int], Tuple[int, int, int]]],
         udf_modifying_row_count: bool,
         ray_remote_args_fn: Optional[Callable[[], Dict[str, Any]]],
+        enable_dynamic_batching: bool,
+        target_latency_s: float,
         **ray_remote_args,
     ):
         # NOTE: The `map_groups` implementation calls `map_batches` with
@@ -815,6 +821,8 @@ class Dataset:
             compute=compute,
             ray_remote_args_fn=ray_remote_args_fn,
             ray_remote_args=ray_remote_args,
+            enable_dynamic_batching=enable_dynamic_batching,
+            target_latency_s=target_latency_s,
         )
         logical_plan = LogicalPlan(map_batches_op, self.context)
         return Dataset(plan, logical_plan)

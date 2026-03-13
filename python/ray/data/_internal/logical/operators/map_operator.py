@@ -201,6 +201,8 @@ class MapBatches(AbstractUDFMap):
         compute: Optional[ComputeStrategy] = None,
         ray_remote_args_fn: Optional[Callable[[], Dict[str, Any]]] = None,
         ray_remote_args: Optional[Dict[str, Any]] = None,
+        enable_dynamic_batching: bool = False,
+        target_latency_s: float = 5.0,
     ):
         super().__init__(
             self.__class__.__name__,
@@ -219,6 +221,8 @@ class MapBatches(AbstractUDFMap):
         self.batch_size = batch_size
         self.batch_format = batch_format
         self.zero_copy_batch = zero_copy_batch
+        self.enable_dynamic_batching = enable_dynamic_batching
+        self.target_latency_s = target_latency_s
 
 
 class MapRows(AbstractUDFMap):
