@@ -40,6 +40,7 @@ def gen_java_deps():
             ),
         ],
         repositories = [
+            "https://artnj.zte.com.cn:443/artifactory/daip-maven-virtual/",
             "https://repo1.maven.org/maven2/",
         ],
     )

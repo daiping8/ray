@@ -71,6 +71,7 @@ pip_parse(
     name = "py_deps_py310",
     python_interpreter_target = python310,
     requirements_lock = "//release:requirements_py310.txt",
+    extra_pip_args = ["-i", "https://artnj.zte.com.cn/artifactory/api/pypi/public-pypi-virtual/simple"],
 )
 
 load("@py_deps_py310//:requirements.bzl", install_py_deps_py310 = "install_deps")

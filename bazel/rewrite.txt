@@ -1,0 +1,16 @@
+rewrite github.com/(.*)  https://artnj.zte.com.cn/artifactory/zxccds-release-generic/swap/mirrors/github.com/$1
+rewrite mirror.bazel.build/(.*)  https://artnj.zte.com.cn/artifactory/zxccds-release-generic/swap/mirrors/mirror.bazel.build/$1
+rewrite dl.google.com/(.*)  https://artnj.zte.com.cn/artifactory/zxccds-release-generic/swap/mirrors/dl.google.com/$1
+rewrite storage.googleapis.com/(.*)  https://artnj.zte.com.cn/artifactory/zxccds-release-generic/swap/mirrors/storage.googleapis.com/$1
+rewrite files.pythonhosted.org/(.*)  https://artnj.zte.com.cn/artifactory/zxccds-release-generic/swap/mirrors/files.pythonhosted.org/$1
+rewrite openssl.org/(.*)  https://artnj.zte.com.cn/artifactory/zxccds-release-generic/swap/mirrors/openssl.org/$1
+rewrite cfhcable.dl.sourceforge.net/(.*)  https://artnj.zte.com.cn/artifactory/zxccds-release-generic/swap/mirrors/cfhcable.dl.sourceforge.net/$1
+rewrite golang.org/(.*)  https://artnj.zte.com.cn/artifactory/zxccds-release-generic/swap/mirrors/golang.org/$1
+rewrite repo1.maven.org/maven2/(.*) https://artnj.zte.com.cn:443/artifactory/public-maven-virtual/$1
+rewrite pypi.org/simple/(.*) https://artnj.zte.com.cn/artifactory/api/pypi/public-pypi-virtual/simple/$1
+rewrite lib25519.cr.yp.to/(.*) https://artnj.zte.com.cn/artifactory/zxccds-release-generic/swap/mirrors/lib25519.cr.yp.to/$1
+rewrite gitlab.com/(.*) https://artnj.zte.com.cn/artifactory/zxccds-release-generic/swap/mirrors/gitlab.com/$1
+rewrite codeload.github.com/(.*) https://artnj.zte.com.cn/artifactory/zxccds-release-generic/swap/mirrors/codeload.github.com/$1
+rewrite src.fedoraproject.org/(.*) https://artnj.zte.com.cn/artifactory/zxccds-release-generic/swap/mirrors/src.fedoraproject.org/$1
+rewrite sourceware.org/(.*) https://artnj.zte.com.cn/artifactory/zxccds-release-generic/swap/mirrors/sourceware.org/$1
+rewrite cdn.azul.com/(.*) https://artnj.zte.com.cn/artifactory/zxccds-release-generic/swap/mirrors/cdn.azul.com/$1

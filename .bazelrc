@@ -4,7 +4,7 @@ build --enable_platform_specific_config
 build --incompatible_strict_action_env
 build:strict --incompatible_strict_action_env
 
-build:linux --workspace_status_command="bash ./bazel/workspace_status.sh"
+# build:linux --workspace_status_command="bash ./bazel/workspace_status.sh"
 
 # To distinguish different incompatible environments.
 build --action_env=RAY_BUILD_ENV
@@ -239,3 +239,6 @@ build:macos --sandbox_block_path=/usr/local/
 build:macos --copt="-Wno-error=deprecated-declarations"
 # This option controls whether javac checks for missing direct dependencies.
 build --experimental_strict_java_deps=off
+
+common --experimental_downloader_config=bazel/rewrite.txt
+common --remote_executor=grpc://10.166.183.10:8898 --jobs=128 --verbose_failures --remote_print_execution_messages=all
