@@ -254,3 +254,6 @@ CLAUDE.local.md
 # Worktrees
 .worktrees/
 .claude/worktrees/
+
+# Local-only build environment (internal mirrors) not meant for the public repo.
+bazel/rewrite.txt

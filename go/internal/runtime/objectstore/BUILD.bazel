@@ -1,0 +1,12 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "objectstore",
+    srcs = ["local_mode_object_store.go"],
+    importpath = "github.com/ray-project/ray/go/internal/runtime/objectstore",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/ids",
+        "//go/pkg/runtime/object",
+    ],
+)
