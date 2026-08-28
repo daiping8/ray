@@ -12,12 +12,13 @@ go_library(
     ],
 )
 
-go_test(
-    name = "resource_test",
-    srcs = ["manager_test.go"],
-    embed = [":resource"],
-    deps = [
-        "//go/pkg/ids",
-        "@com_github_stretchr_testify//assert",
-    ],
-)
+# Deferred: manager_test.go not migrated (Task 1 excluded test files).
+# go_test(
+#    name = "resource_test",
+#    srcs = ["manager_test.go"],
+#    embed = [":resource"],
+#    deps = [
+#        "//go/pkg/ids",
+#        "@com_github_stretchr_testify//assert",
+#    ],
+# )

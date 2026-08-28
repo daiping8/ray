@@ -28,6 +28,10 @@ load("//bazel:ray_deps_setup.bzl", "ray_deps_setup")
 
 ray_deps_setup()
 
+load("@bazel_features//:deps.bzl", "bazel_features_deps")
+
+bazel_features_deps()
+
 load("//bazel:ray_deps_build_all.bzl", "ray_deps_build_all")
 
 ray_deps_build_all()

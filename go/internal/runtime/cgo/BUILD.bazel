@@ -36,17 +36,18 @@ go_library(
     ],
 )
 
-go_test(
-    name = "cgo_test",
-    srcs = [
-        "converters_test.go",
-        "native_allocator_test.go",
-        "native_context_test.go",
-        "native_executor_test.go",
-    ],
-    embed = [":cgo"],
-    deps = [
-        "//go/pkg/ids",
-        "//go/pkg/runtime/function",
-    ],
-)
+# Deferred: *_test.go not migrated (Task 1 excluded test files).
+# go_test(
+#    name = "cgo_test",
+#    srcs = [
+#        "converters_test.go",
+#        "native_allocator_test.go",
+#        "native_context_test.go",
+#        "native_executor_test.go",
+#    ],
+#    embed = [":cgo"],
+#    deps = [
+#        "//go/pkg/ids",
+#        "//go/pkg/runtime/function",
+#    ],
+# )

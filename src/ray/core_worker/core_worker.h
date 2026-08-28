@@ -519,6 +519,13 @@ class CoreWorker : public std::enable_shared_from_this<CoreWorker> {
   /// \param[out] The RPC address of the worker that owns this object.
   rpc::Address GetOwnerAddressOrDie(const ObjectID &object_id) const;
 
+  /// Delete a list of objects from the plasma object store; called by Delete().
+  ///
+  /// \param[in] object_ids IDs of the objects to delete.
+  /// \param[in] local_only If true, the objects are only deleted from the local object
+  /// store.
+  Status DeleteImpl(const std::vector<ObjectID> &object_ids, bool local_only);
+
   /// Get the RPC address of the worker that owns the given object.
   ///
   /// \param[in] object_id The object ID. The object must either be owned by
@@ -791,6 +798,15 @@ class CoreWorker : public std::enable_shared_from_this<CoreWorker> {
               const int64_t timeout_ms,
               std::vector<bool> *results,
               bool fetch_local);
+
+  /// Delete a list of objects. If local_only is false, a delete request is sent to the
+  /// owner of each object so that the objects are freed even if they are not present
+  /// locally. Regardless of local_only, the objects are always freed from the local
+  /// object director and the in-memory store.
+  ///
+  /// \param[in] object_ids IDs of the objects to delete.
+  /// \param[in] local_only Whether to only free locally-created objects.
+  Status Delete(const std::vector<ObjectID> &object_ids, bool local_only);
 
   /// Get the locations of a list objects from the local core worker. Locations that
   /// failed to be retrieved will be returned as nullopt. No RPCs are made in this
