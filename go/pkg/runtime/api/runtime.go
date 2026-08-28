@@ -83,7 +83,7 @@ func InitWithOptions(opts *options.InitializeOptions) error {
 	// local-mode runtime), use it directly instead of locating and loading a
 	// runtime plugin .so. This keeps the minimal runtime usable without building
 	// go_runtime.so.
-	if getInitFunc() != nil {
+	if initFunc := getInitFunc(initOpts.WorkerType); initFunc != nil {
 		handle, err := getFactory().Initialize(&initOpts)
 		if err != nil {
 			return err

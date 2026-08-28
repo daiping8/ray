@@ -16,6 +16,7 @@ package api
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/ray-project/ray/go/pkg/options"
 	"github.com/ray-project/ray/go/pkg/runtime/contract"
@@ -25,37 +26,38 @@ import (
 // It accepts options and returns a RuntimeHandle.
 type InitFunc func(*options.InitializeOptions) (contract.RuntimeHandle, error)
 
-var (
-	// initFunc is the registered initialization function.
-	// Set automatically by internal packages via init().
-	initFunc InitFunc
-)
+// initFuncs maps an execution mode to its registered initializer.
+var initFuncs = map[options.WorkerType]InitFunc{}
 
-// RegisterInitializer registers an initialization function.
-// This function is typically called from init() in internal packages.
-// Example:
-//
-//	func init() {
-//	    api.RegisterInitializer(func(opts *options.InitializeOptions) (api.RuntimeHandle, error) {
-//	        // Create and initialize runtime...
-//	    })
-//	}
-func RegisterInitializer(fn InitFunc) {
-	initFunc = fn
+var initFuncsMu sync.Mutex
+
+// RegisterInitializer registers an initializer for a specific worker type.
+func RegisterInitializer(workerType options.WorkerType, fn InitFunc) {
+	initFuncsMu.Lock()
+	defer initFuncsMu.Unlock()
+	initFuncs[workerType] = fn
 }
 
-// getInitFunc returns the registered initialization function.
-// Returns nil if no function has been registered.
-func getInitFunc() InitFunc {
-	return initFunc
+// getInitFunc returns the initializer for the given worker type (Local → local
+// mode; Driver/Worker → native). Falls back to any single registration for
+// backward compatibility.
+func getInitFunc(workerType options.WorkerType) InitFunc {
+	initFuncsMu.Lock()
+	defer initFuncsMu.Unlock()
+	if len(initFuncs) == 1 {
+		for _, fn := range initFuncs {
+			return fn
+		}
+	}
+	return initFuncs[workerType]
 }
 
 // defaultFactory is a fallback factory that returns an error if no initializer is registered.
 type defaultFactory struct{}
 
 func (f *defaultFactory) Initialize(opts *options.InitializeOptions) (contract.RuntimeHandle, error) {
-	if initFunc != nil {
-		return initFunc(opts)
+	if fn := getInitFunc(opts.WorkerType); fn != nil {
+		return fn(opts)
 	}
 	return nil, fmt.Errorf("no runtime initializer registered. " +
 		"Make sure to import github.com/ray-project/ray/go/internal/runtime/native")

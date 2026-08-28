@@ -30,7 +30,7 @@ import (
 )
 
 func init() {
-	api.RegisterInitializer(func(opts *options.InitializeOptions) (contract.RuntimeHandle, error) {
+	api.RegisterInitializer(options.WorkerTypeLocal, func(opts *options.InitializeOptions) (contract.RuntimeHandle, error) {
 		if opts == nil {
 			opts = &options.InitializeOptions{}
 		}
