@@ -31,8 +31,9 @@ type ActorConcurrencyGroup struct {
 	actorID        ids.ActorID
 	executionQueue chan func()
 	maxConcurrency int
-	workers        []chan func()
+	workerTasks    []chan func()
 	shutdownOnce   sync.Once
+	done           chan struct{}
 }
 
 // NewActorConcurrencyGroup creates a new ActorConcurrencyGroup.
@@ -45,26 +46,36 @@ func NewActorConcurrencyGroup(actorID ids.ActorID, maxConcurrency int) *ActorCon
 		actorID:        actorID,
 		maxConcurrency: maxConcurrency,
 		executionQueue: make(chan func(), 100), // buffered queue
-		workers:        make([]chan func(), maxConcurrency),
+		workerTasks:    make([]chan func(), maxConcurrency),
+		done:           make(chan struct{}),
 	}
 
-	// Start worker goroutines
+	// Start worker goroutines. Each worker select-sends on its task channel so
+	// Shutdown can never "send on closed channel": workers stop on done and the
+	// dispatcher stops feeding them before the task channels are drained.
 	for i := 0; i < maxConcurrency; i++ {
-		group.workers[i] = make(chan func(), 1)
+		taskCh := make(chan func(), 1)
+		group.workerTasks[i] = taskCh
 		go func(workerChan chan func()) {
 			for task := range workerChan {
 				task()
 			}
-		}(group.workers[i])
+		}(taskCh)
 	}
 
-	// Start dispatcher goroutine
+	// Start dispatcher goroutine. It feeds round-robin to workers and exits on
+	// done; Shutdown closes executionQueue only after workers have drained, and
+	// closes done to unblock a dispatcher blocked on a full worker channel.
 	go func() {
 		workerIdx := 0
-		for task := range group.executionQueue {
-			// Round-robin dispatch to worker goroutines
-			group.workers[workerIdx] <- task
-			workerIdx = (workerIdx + 1) % maxConcurrency
+		for {
+			select {
+			case task := <-group.executionQueue:
+				group.workerTasks[workerIdx] <- task
+				workerIdx = (workerIdx + 1) % maxConcurrency
+			case <-group.done:
+				return
+			}
 		}
 	}()
 
@@ -72,23 +83,23 @@ func NewActorConcurrencyGroup(actorID ids.ActorID, maxConcurrency int) *ActorCon
 }
 
 // Submit adds a task to the execution queue.
+//
+// The send blocks when the queue is full instead of dropping the task: dropping
+// would leave callers (ExecuteActorTask's <-done) waiting forever for a task
+// that never runs.
 func (g *ActorConcurrencyGroup) Submit(task func()) {
-	select {
-	case g.executionQueue <- task:
-		// Task submitted successfully
-	default:
-		// Queue is full, could log warning or handle differently
-		// For now, just drop the task (should not happen in normal operation)
-	}
+	g.executionQueue <- task
 }
 
 // Shutdown gracefully shuts down the concurrency group.
+//
+// Closing done stops the dispatcher first so it cannot be blocked mid-send on a
+// worker channel when that channel is closed (which would panic). Worker
+// channels are never closed here; workers exit when the dispatcher stops
+// feeding them via done.
 func (g *ActorConcurrencyGroup) Shutdown() {
 	g.shutdownOnce.Do(func() {
-		close(g.executionQueue)
-		for _, workerChan := range g.workers {
-			close(workerChan)
-		}
+		close(g.done)
 	})
 }
 

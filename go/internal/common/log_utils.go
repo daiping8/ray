@@ -1,3 +1,18 @@
+// Copyright 2025 The Ray Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//  http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+
 package common
 
 import (
@@ -9,42 +24,40 @@ import (
 )
 
 type LogOption struct {
-	// LoggingLevel 日志级别 (可选，默认："info")
+	// LoggingLevel log level (optional, default: "info")
 	LoggingLevel string
 
-	// LoggingFormat 日志格式 (可选)
+	// LoggingFormat log format (optional)
 	LoggingFormat string
 
-	// LoggingFilename 日志文件名 (可选，默认："monitor.log")
+	// LoggingFilename log file name (optional, default: "monitor.log")
 	LoggingFilename string
 
-	// LogsDir 日志目录 (必需)
+	// LogsDir log directory (required)
 	LogsDir string
 
-	// LoggingRotateBytes 日志轮转大小 (可选，默认：100MB)
+	// LoggingRotateBytes log rotation size (optional, default: 100MB)
 	LoggingRotateBytes int
 
-	// LoggingRotateBackupCount 日志备份数量 (可选，默认：5)
+	// LoggingRotateBackupCount number of rotation backups (optional, default: 5)
 	LoggingRotateBackupCount int
 
-	// StdoutFilepath stdout 输出文件路径 (可选)
+	// StdoutFilepath stdout output file path (optional)
 	StdoutFilepath string
 
-	// StderrFilepath stderr 输出文件路径 (可选)
+	// StderrFilepath stderr output file path (optional)
 	StderrFilepath string
 }
 
-// Option 定义了修改 logConfig 的函数类型
+// Option is a function type that configures *LogOption.
 type Option func(*LogOption)
 
-// WithLoggingLevel 设置日志级别
 func WithLoggingLevel(level string) Option {
 	return func(c *LogOption) {
 		c.LoggingLevel = level
 	}
 }
 
-// WithLoggingFormat 设置日志格式
 func WithLoggingFormat(format string) Option {
 	return func(c *LogOption) {
 		c.LoggingFormat = format
@@ -59,14 +72,12 @@ func WithLogsDir(logsDir string) Option {
 	}
 }
 
-// WithLoggingFilename 设置日志文件名
 func WithLoggingFilename(filename string) Option {
 	return func(c *LogOption) {
 		c.LoggingFilename = filename
 	}
 }
 
-// WithLoggingRotateBytes 设置日志轮转大小 (单位: Bytes)
 func WithLoggingRotateBytes(bytes int) Option {
 	return func(c *LogOption) {
 		if bytes > 0 {
@@ -75,7 +86,6 @@ func WithLoggingRotateBytes(bytes int) Option {
 	}
 }
 
-// WithLoggingRotateBackupCount 设置日志备份数量
 func WithLoggingRotateBackupCount(count int) Option {
 	return func(c *LogOption) {
 		if count > 0 {
@@ -84,23 +94,21 @@ func WithLoggingRotateBackupCount(count int) Option {
 	}
 }
 
-// WithStdoutFilepath 设置 stdout 输出文件路径
 func WithStdoutFilepath(path string) Option {
 	return func(c *LogOption) {
 		c.StdoutFilepath = path
 	}
 }
 
-// WithStderrFilepath 设置 stderr 输出文件路径
 func WithStderrFilepath(path string) Option {
 	return func(c *LogOption) {
 		c.StderrFilepath = path
 	}
 }
 
-// NewLogOption 创建并返回一个新的日志配置实例
+// NewLogOption creates and returns a new *LogOption.
 func NewLogOption(opts ...Option) *LogOption {
-	// 默认值
+	// Default values.
 	cfg := &LogOption{
 		LoggingLevel:             "info",
 		LoggingRotateBytes:       LOGGING_ROTATE_BYTES,
@@ -114,7 +122,6 @@ func NewLogOption(opts ...Option) *LogOption {
 	return cfg
 }
 
-// ParseLogLevel 解析日志级别
 func ParseLogLevel(level string) (zapcore.Level, error) {
 	switch level {
 	case "debug":
@@ -132,15 +139,15 @@ func ParseLogLevel(level string) (zapcore.Level, error) {
 	}
 }
 
-// SetupComponentLogger 配置组件日志系统
+// SetupComponentLogger configures the component logging system.
 func (opt *LogOption) SetupComponentLogger() error {
-	// 解析日志级别
+	// Parse the configured log level.
 	loggingZapcoreLevel, err := ParseLogLevel(opt.LoggingLevel)
 	if err != nil {
 		return err
 	}
 
-	// 构建完整日志文件路径
+	// Build the full log file paths.
 	var logOutputPaths []string
 	var logErrorOutputPaths []string
 
@@ -150,7 +157,7 @@ func (opt *LogOption) SetupComponentLogger() error {
 		logErrorOutputPaths = []string{logFilePath}
 	}
 
-	// 如果配置了 stdout/stderr 文件路径，添加到输出路径
+	// If stdout/stderr file paths are configured, add them to the output paths.
 	if opt.StdoutFilepath != "" {
 		if opt.LogsDir != "" && !filepath.IsAbs(opt.StdoutFilepath) {
 			logOutputPaths = append(logOutputPaths, filepath.Join(opt.LogsDir, opt.StdoutFilepath))
@@ -167,7 +174,7 @@ func (opt *LogOption) SetupComponentLogger() error {
 		}
 	}
 
-	// 如果没有配置日志文件路径，使用默认输出
+	// If no log file path is configured, fall back to empty outputs.
 	if len(logOutputPaths) == 0 {
 		logOutputPaths = []string{}
 	}
@@ -175,19 +182,19 @@ func (opt *LogOption) SetupComponentLogger() error {
 		logErrorOutputPaths = []string{}
 	}
 
-	// 将字节转换为 MB（lumberjack 使用 MB 为单位）
+	// Convert bytes to MB (lumberjack uses MB as the unit).
 	maxSizeMB := opt.LoggingRotateBytes / (1024 * 1024)
 	if maxSizeMB <= 0 {
 		maxSizeMB = 1
 	}
 
-	// 根据日志格式确定编码器类型
+	// Choose the encoder type based on the configured log format.
 	var encoderType zap.EncoderType
 	if opt.LoggingFormat != "" {
-		// 如果配置了自定义格式，使用 Console 编码器
+		// If a custom format is configured, use the Console encoder.
 		encoderType = zap.ConsoleEncoder
 	} else {
-		// 默认使用 JSON 编码器（生产模式）
+		// Default to the JSON encoder (production mode).
 		encoderType = zap.JSONEncoder
 	}
 

@@ -96,20 +96,20 @@ func ValidateSocketPath(path string) bool {
 	return true
 }
 
-// BuildAddress 构建网络地址字符串，支持 IPv4 和 IPv6
+// BuildAddress builds a network address string, supporting both IPv4 and IPv6.
 //
-// 功能说明:
-// - 对于 IPv6 地址（host 中包含冒号），返回 "[host]:port" 格式
-// - 对于 IPv4 地址或主机名，返回 "host:port" 格式
+// Format rules:
+// - For IPv6 addresses (host containing a colon), returns "[host]:port".
+// - For IPv4 addresses or hostnames, returns "host:port".
 func BuildAddress(host string, port int) (string, error) {
 	if !ValidatePortAllowZero(port) {
 		return "", fmt.Errorf("invalid port: %d (must be 0 or %d-%d)", port, MinPort, MaxPort)
 	}
-	// 检测是否为 IPv6 地址（通过检查是否包含冒号）
+	// Detect an IPv6 address by checking for a colon.
 	if strings.Contains(host, ":") {
-		// IPv6 地址需要用方括号包围
+		// IPv6 addresses must be wrapped in square brackets.
 		return fmt.Sprintf("[%s]:%d", host, port), nil
 	}
-	// IPv4 地址或主机名，直接使用 host:port 格式
+	// IPv4 addresses or hostnames use the plain "host:port" format.
 	return fmt.Sprintf("%s:%d", host, port), nil
 }

@@ -1,3 +1,18 @@
+// Copyright 2025 The Ray Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//  http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+
 // Package gcs provides the Go client for Ray Global Control Store (GCS).
 package gcs
 
@@ -8,21 +23,22 @@ import (
 	"github.com/ray-project/ray/go/pkg/ids"
 )
 
-// ErrNotImplemented 表示功能尚未实现
+// ErrNotImplemented indicates that a feature has not been implemented yet.
 var ErrNotImplemented = errors.New("not implemented")
 
-// ErrKeyNotFound 表示键不存在（区别于键存在但值为空）
+// ErrKeyNotFound indicates that the key does not exist (distinct from a key
+// that exists but holds an empty value).
 var ErrKeyNotFound = errors.New("key not found")
 
-// 全局单例客户端
+// Global singleton client.
 var (
 	clientInstance Client
 	clientMu       sync.RWMutex
 	clientOnce     sync.Once
 )
 
-// Client GCS 客户端主接口
-// 通过组合子接口提供所有 GCS 功能
+// Client is the primary GCS client interface, composed of sub-interfaces that
+// cover all GCS functionality.
 type Client interface {
 	InternalKVInterface
 	NodeInfoInterface
@@ -34,13 +50,13 @@ type Client interface {
 	PublisherInterface
 	AutoscalerInterface
 
-	// Address 返回 GCS 服务器地址 (host:port)
+	// Address returns the GCS server address (host:port).
 	Address() string
 
-	// ClusterID 返回集群 ID
+	// ClusterID returns the cluster ID.
 	ClusterID() ids.ClusterID
 
-	// Close 断开与 GCS 的连接
+	// Close disconnects from GCS.
 	Close() error
 
 	// IsClosed reports whether the client has been closed.
@@ -50,10 +66,11 @@ type Client interface {
 	ReportAutoscalingState(autoscalingState string) error
 }
 
-// SetClient 设置全局 GCS 客户端实例
-// 由实现包（如 go/internal/gcs/native）在初始化时调用
-// 使用 sync.Once 确保只设置一次，避免重复设置
-// 此函数允许外部包注入客户端实例，避免循环依赖
+// SetClient sets the global GCS client instance. It is called by
+// implementation packages (e.g., go/internal/gcs/native) during
+// initialization. sync.Once ensures it is set only once, and this injection
+// lets external packages provide the client without creating a circular
+// dependency.
 func SetClient(client Client) {
 	clientOnce.Do(func() {
 		clientMu.Lock()
@@ -62,8 +79,8 @@ func SetClient(client Client) {
 	})
 }
 
-// GetClient 获取全局 GCS 客户端实例
-// 如果尚未初始化，返回 nil 和 ErrNotImplemented 错误
+// GetClient returns the global GCS client instance, or (nil, ErrNotImplemented)
+// if it has not been initialized yet.
 func GetClient() (Client, error) {
 	clientMu.RLock()
 	defer clientMu.RUnlock()
@@ -73,12 +90,12 @@ func GetClient() (Client, error) {
 	return clientInstance, nil
 }
 
-// ClearClient 清除全局 GCS 客户端实例
-// 用于 Close 方法清理资源，防止后续获取已关闭的客户端
+// ClearClient clears the global GCS client instance so that a closed client is
+// not returned afterwards.
 func ClearClient() {
 	clientMu.Lock()
 	defer clientMu.Unlock()
 	clientInstance = nil
-	// 重置 sync.Once 以允许重新设置
+	// Reset sync.Once to allow the client to be set again.
 	clientOnce = sync.Once{}
 }

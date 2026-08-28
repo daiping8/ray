@@ -4,7 +4,8 @@ import (
 	"github.com/go-logr/logr"
 )
 
-// testLogSink 是用于测试的 LogSink 实现，记录最后接收到的消息和键值对。
+// testLogSink is a LogSink implementation for testing that records the last
+// received message and key-value pairs.
 type testLogSink struct {
 	lastMsg           string
 	lastKeysAndValues []interface{}
@@ -46,7 +47,6 @@ func (t *testLogSink) WithValues(keysAndValues ...interface{}) logr.LogSink {
 	}
 }
 
-// testLogSinkWithName 带名称的 testLogSink
 type testLogSinkWithName struct {
 	*testLogSink
 	name string
@@ -77,7 +77,6 @@ func (t *testLogSinkWithName) WithValues(keysAndValues ...interface{}) logr.LogS
 	}
 }
 
-// testLogSinkWithValues 带键值对的 testLogSink
 type testLogSinkWithValues struct {
 	*testLogSink
 	keysAndValues []interface{}

@@ -5,14 +5,12 @@ import (
 	"testing"
 )
 
-// TestJobIDConstants 测试 JobID 常量
 func TestJobIDConstants(t *testing.T) {
 	if JobIDSize != 4 {
 		t.Errorf("JobIDSize should be 4, got %d", JobIDSize)
 	}
 }
 
-// TestJobIDFromInt 测试从整数创建 JobID
 func TestJobIDFromInt(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -37,7 +35,6 @@ func TestJobIDFromInt(t *testing.T) {
 	}
 }
 
-// TestJobIDNil 测试空 JobID
 func TestJobIDNil(t *testing.T) {
 	nilID := NilJobID()
 	if !nilID.IsNil() {
@@ -53,7 +50,6 @@ func TestJobIDNil(t *testing.T) {
 	}
 }
 
-// TestJobIDFromBinary 测试从二进制创建 JobID
 func TestJobIDFromBinary(t *testing.T) {
 	data := []byte{0x01, 0x02, 0x03, 0x04}
 	id, err := JobIDFromBinary(data)
@@ -71,7 +67,6 @@ func TestJobIDFromBinary(t *testing.T) {
 	}
 }
 
-// TestJobIDFromHex 测试从十六进制创建 JobID
 func TestJobIDFromHex(t *testing.T) {
 	id, err := JobIDFromHex("01020304")
 	if err != nil {
@@ -88,7 +83,6 @@ func TestJobIDFromHex(t *testing.T) {
 	}
 }
 
-// TestJobIDEqual 测试 JobID 相等性
 func TestJobIDEqual(t *testing.T) {
 	id1 := JobIDFromInt(100)
 	id2 := JobIDFromInt(100)
@@ -102,7 +96,6 @@ func TestJobIDEqual(t *testing.T) {
 	}
 }
 
-// TestJobIDHash 测试 JobID 哈希
 func TestJobIDHash(t *testing.T) {
 	id := JobIDFromInt(123)
 	hash := id.Hash()
@@ -112,7 +105,6 @@ func TestJobIDHash(t *testing.T) {
 	}
 }
 
-// TestJobIDNew 测试生成随机 JobID
 func TestJobIDNew(t *testing.T) {
 	id1 := NewJobID()
 	id2 := NewJobID()
@@ -128,7 +120,6 @@ func TestJobIDNew(t *testing.T) {
 	}
 }
 
-// TestJobIDSize 测试 JobID 大小
 func TestJobIDSize(t *testing.T) {
 	id := JobIDFromInt(100)
 	if id.Size() != JobIDSize {
@@ -136,14 +127,12 @@ func TestJobIDSize(t *testing.T) {
 	}
 }
 
-// TestUniqueIDConstants 测试 UniqueID 常量
 func TestUniqueIDConstants(t *testing.T) {
 	if UniqueIDSize != 28 {
 		t.Errorf("UniqueIDSize should be 28, got %d", UniqueIDSize)
 	}
 }
 
-// TestUniqueIDNil 测试空 UniqueID
 func TestUniqueIDNil(t *testing.T) {
 	nilID := NilUniqueID()
 	if !nilID.IsNil() {
@@ -154,7 +143,6 @@ func TestUniqueIDNil(t *testing.T) {
 	}
 }
 
-// TestUniqueIDFromBinary 测试从二进制创建 UniqueID
 func TestUniqueIDFromBinary(t *testing.T) {
 	data := make([]byte, UniqueIDSize)
 	for i := range data {
@@ -179,7 +167,6 @@ func TestUniqueIDFromBinary(t *testing.T) {
 	}
 }
 
-// TestUniqueIDFromHex 测试从十六进制创建 UniqueID
 func TestUniqueIDFromHex(t *testing.T) {
 	// 28 bytes = 56 hex chars
 	hexStr := "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
@@ -193,7 +180,6 @@ func TestUniqueIDFromHex(t *testing.T) {
 	}
 }
 
-// TestUniqueIDNew 测试生成随机 UniqueID
 func TestUniqueIDNew(t *testing.T) {
 	id1 := NewUniqueID()
 	id2 := NewUniqueID()
@@ -204,7 +190,6 @@ func TestUniqueIDNew(t *testing.T) {
 	}
 }
 
-// TestUniqueIDSize 测试 UniqueID 大小
 func TestUniqueIDSize(t *testing.T) {
 	id := NewUniqueID()
 	if id.Size() != UniqueIDSize {
@@ -212,7 +197,6 @@ func TestUniqueIDSize(t *testing.T) {
 	}
 }
 
-// TestWorkerIDNil 测试空 WorkerID
 func TestWorkerIDNil(t *testing.T) {
 	nilID := NilWorkerID()
 	if !nilID.IsNil() {
@@ -220,7 +204,6 @@ func TestWorkerIDNil(t *testing.T) {
 	}
 }
 
-// TestWorkerIDFromBinary 测试从二进制创建 WorkerID
 func TestWorkerIDFromBinary(t *testing.T) {
 	data := make([]byte, UniqueIDSize)
 	fillRandom(data)
@@ -235,7 +218,6 @@ func TestWorkerIDFromBinary(t *testing.T) {
 	}
 }
 
-// TestComputeDriverIdFromJob 测试从 JobID 计算 Driver ID
 func TestComputeDriverIdFromJob(t *testing.T) {
 	jobID := JobIDFromInt(123)
 	driverID := ComputeDriverIdFromJob(jobID)
@@ -256,7 +238,6 @@ func TestComputeDriverIdFromJob(t *testing.T) {
 	}
 }
 
-// TestNodeIDGCSNodeID 测试 GCS NodeID
 func TestNodeIDGCSNodeID(t *testing.T) {
 	gcsID := GCSNodeID()
 
@@ -268,7 +249,6 @@ func TestNodeIDGCSNodeID(t *testing.T) {
 	}
 }
 
-// TestNodeIDNil 测试空 NodeID
 func TestNodeIDNil(t *testing.T) {
 	nilID := NilNodeID()
 	if !nilID.IsNil() {
@@ -276,7 +256,6 @@ func TestNodeIDNil(t *testing.T) {
 	}
 }
 
-// TestClusterIDNil 测试空 ClusterID
 func TestClusterIDNil(t *testing.T) {
 	nilID := NilClusterID()
 	if !nilID.IsNil() {
@@ -284,7 +263,6 @@ func TestClusterIDNil(t *testing.T) {
 	}
 }
 
-// TestFunctionIDNil 测试空 FunctionID
 func TestFunctionIDNil(t *testing.T) {
 	nilID := NilFunctionID()
 	if !nilID.IsNil() {
@@ -292,7 +270,6 @@ func TestFunctionIDNil(t *testing.T) {
 	}
 }
 
-// TestActorClassIDNil 测试空 ActorClassID
 func TestActorClassIDNil(t *testing.T) {
 	nilID := NilActorClassID()
 	if !nilID.IsNil() {
@@ -300,7 +277,6 @@ func TestActorClassIDNil(t *testing.T) {
 	}
 }
 
-// TestConfigIDNil 测试空 ConfigID
 func TestConfigIDNil(t *testing.T) {
 	nilID := NilConfigID()
 	if !nilID.IsNil() {
@@ -308,7 +284,6 @@ func TestConfigIDNil(t *testing.T) {
 	}
 }
 
-// TestActorIDConstants 测试 ActorID 常量
 func TestActorIDConstants(t *testing.T) {
 	if ActorIDSize != 16 {
 		t.Errorf("ActorIDSize should be 16, got %d", ActorIDSize)
@@ -318,7 +293,6 @@ func TestActorIDConstants(t *testing.T) {
 	}
 }
 
-// TestActorIDNil 测试空 ActorID
 func TestActorIDNil(t *testing.T) {
 	nilID := NilActorID()
 	if !nilID.IsNil() {
@@ -329,7 +303,6 @@ func TestActorIDNil(t *testing.T) {
 	}
 }
 
-// TestActorIDFromBinary 测试从二进制创建 ActorID
 func TestActorIDFromBinary(t *testing.T) {
 	data := make([]byte, ActorIDSize)
 	fillRandom(data)
@@ -344,18 +317,15 @@ func TestActorIDFromBinary(t *testing.T) {
 	}
 }
 
-// TestActorIDNilFromJob 测试从 JobID 创建空的 ActorID
 func TestActorIDNilFromJob(t *testing.T) {
 	jobID := JobIDFromInt(100)
 	actorID := ActorIDNilFromJob(jobID)
 
-	// ActorID 的后 4 字节应该是 JobID
 	extractedJobID := actorID.JobID()
 	if !extractedJobID.Equal(jobID) {
 		t.Error("ActorID.JobID() should return the original JobID")
 	}
 
-	// ActorID 的前 12 字节应该是 0xff
 	uniqueBytes := actorID.Binary()[:ActorIDUniqueBytesSize]
 	for _, b := range uniqueBytes {
 		if b != 0xff {
@@ -365,7 +335,6 @@ func TestActorIDNilFromJob(t *testing.T) {
 	}
 }
 
-// TestTaskIDConstants 测试 TaskID 常量
 func TestTaskIDConstants(t *testing.T) {
 	if TaskIDSize != 24 {
 		t.Errorf("TaskIDSize should be 24, got %d", TaskIDSize)
@@ -375,7 +344,6 @@ func TestTaskIDConstants(t *testing.T) {
 	}
 }
 
-// TestTaskIDNil 测试空 TaskID
 func TestTaskIDNil(t *testing.T) {
 	nilID := NilTaskID()
 	if !nilID.IsNil() {
@@ -383,12 +351,10 @@ func TestTaskIDNil(t *testing.T) {
 	}
 }
 
-// TestTaskIDForDriverTask 测试 Driver Task 的 TaskID
 func TestTaskIDForDriverTask(t *testing.T) {
 	jobID := JobIDFromInt(100)
 	taskID := TaskIDForDriverTask(jobID)
 
-	// unique bytes 应该全为 0xff
 	uniqueBytes := taskID.Binary()[:TaskIDUniqueBytesSize]
 	for _, b := range uniqueBytes {
 		if b != 0xff {
@@ -397,7 +363,6 @@ func TestTaskIDForDriverTask(t *testing.T) {
 		}
 	}
 
-	// ActorID 应该是 dummy（包含 JobID）
 	actorID := taskID.ActorID()
 	extractedJobID := actorID.JobID()
 	if !extractedJobID.Equal(jobID) {
@@ -405,7 +370,6 @@ func TestTaskIDForDriverTask(t *testing.T) {
 	}
 }
 
-// TestTaskIDForActorCreationTask 测试 Actor Creation Task 的 TaskID
 func TestTaskIDForActorCreationTask(t *testing.T) {
 	jobID := JobIDFromInt(100)
 	parentTaskID := TaskIDForDriverTask(jobID)
@@ -413,7 +377,6 @@ func TestTaskIDForActorCreationTask(t *testing.T) {
 
 	creationTask := TaskIDForActorCreationTask(actorID)
 
-	// unique bytes 应该全为 0xff
 	uniqueBytes := creationTask.Binary()[:TaskIDUniqueBytesSize]
 	for _, b := range uniqueBytes {
 		if b != 0xff {
@@ -422,61 +385,51 @@ func TestTaskIDForActorCreationTask(t *testing.T) {
 		}
 	}
 
-	// ActorID 应该匹配
 	extractedActorID := creationTask.ActorID()
 	if !extractedActorID.Equal(actorID) {
 		t.Error("ActorCreationTask should contain correct ActorID")
 	}
 
-	// IsForActorCreationTask 应该返回 true
 	if !creationTask.IsForActorCreationTask() {
 		t.Error("ActorCreationTask should be for actor creation")
 	}
 }
 
-// TestTaskIDForNormalTask 测试普通 Task 的 TaskID
 func TestTaskIDForNormalTask(t *testing.T) {
 	jobID := JobIDFromInt(100)
 	parentTaskID := TaskIDForDriverTask(jobID)
 
 	normalTask := TaskIDForNormalTask(jobID, parentTaskID, 1)
 
-	// ActorID 应该是 dummy
 	actorID := normalTask.ActorID()
 	extractedJobID := actorID.JobID()
 	if !extractedJobID.Equal(jobID) {
 		t.Error("NormalTask ActorID should contain JobID")
 	}
 
-	// IsForActorCreationTask 应该返回 false
 	if normalTask.IsForActorCreationTask() {
 		t.Error("NormalTask should not be for actor creation")
 	}
 }
 
-// TestTaskIDForExecutionAttempt 测试执行尝试（重试）的 TaskID
 func TestTaskIDForExecutionAttempt(t *testing.T) {
 	jobID := JobIDFromInt(100)
 	parentTaskID := TaskIDForDriverTask(jobID)
 
 	originalTask := TaskIDForNormalTask(jobID, parentTaskID, 1)
 
-	// 测试多次重试
 	attempt1 := TaskIDForExecutionAttempt(originalTask, 1)
 	attempt2 := TaskIDForExecutionAttempt(originalTask, 2)
 
-	// 不同 attempt 应该不同
 	if attempt1.Equal(attempt2) {
 		t.Error("different attempts should have different TaskIDs")
 	}
 
-	// 但 ActorID 应该相同
 	if !attempt1.ActorID().Equal(originalTask.ActorID()) {
 		t.Error("execution attempt should preserve ActorID")
 	}
 }
 
-// TestObjectIDConstants 测试 ObjectID 常量
 func TestObjectIDConstants(t *testing.T) {
 	if ObjectIDSize != 28 {
 		t.Errorf("ObjectIDSize should be 28, got %d", ObjectIDSize)
@@ -486,7 +439,6 @@ func TestObjectIDConstants(t *testing.T) {
 	}
 }
 
-// TestObjectIDNil 测试空 ObjectID
 func TestObjectIDNil(t *testing.T) {
 	nilID := NilObjectID()
 	if !nilID.IsNil() {
@@ -494,25 +446,21 @@ func TestObjectIDNil(t *testing.T) {
 	}
 }
 
-// TestObjectIDFromIndex 测试从 TaskID 和 index 创建 ObjectID
 func TestObjectIDFromIndex(t *testing.T) {
 	jobID := JobIDFromInt(100)
 	taskID := TaskIDForDriverTask(jobID)
 
 	objID := ObjectIDFromIndex(taskID, 1)
 
-	// TaskID 应该匹配
 	extractedTaskID := objID.TaskID()
 	if !extractedTaskID.Equal(taskID) {
 		t.Error("ObjectID.TaskID should match")
 	}
 
-	// Index 应该匹配
 	if objID.ObjectIndex() != 1 {
 		t.Errorf("ObjectIndex = %d, want 1", objID.ObjectIndex())
 	}
 
-	// Invalid index 应该 panic
 	func() {
 		defer func() {
 			if r := recover(); r == nil {
@@ -523,7 +471,6 @@ func TestObjectIDFromIndex(t *testing.T) {
 	}()
 }
 
-// TestPlacementGroupIDConstants 测试 PlacementGroupID 常量
 func TestPlacementGroupIDConstants(t *testing.T) {
 	if PlacementGroupIDSize != 18 {
 		t.Errorf("PlacementGroupIDSize should be 18, got %d", PlacementGroupIDSize)
@@ -533,7 +480,6 @@ func TestPlacementGroupIDConstants(t *testing.T) {
 	}
 }
 
-// TestPlacementGroupIDNil 测试空 PlacementGroupID
 func TestPlacementGroupIDNil(t *testing.T) {
 	nilID := NilPlacementGroupID()
 	if !nilID.IsNil() {
@@ -541,19 +487,16 @@ func TestPlacementGroupIDNil(t *testing.T) {
 	}
 }
 
-// TestOfPlacementGroupID 测试从 JobID 创建 PlacementGroupID
 func TestOfPlacementGroupID(t *testing.T) {
 	jobID := JobIDFromInt(100)
 	pgID := OfPlacementGroupID(jobID)
 
-	// JobID 应该匹配
 	extractedJobID := pgID.JobID()
 	if !extractedJobID.Equal(jobID) {
 		t.Error("PlacementGroupID.JobID should match")
 	}
 }
 
-// TestObjectIDForActorHandle 测试 Actor Handle 的 ObjectID
 func TestObjectIDForActorHandle(t *testing.T) {
 	jobID := JobIDFromInt(100)
 	parentTaskID := TaskIDForDriverTask(jobID)
@@ -561,19 +504,16 @@ func TestObjectIDForActorHandle(t *testing.T) {
 
 	handle := ObjectIDForActorHandle(actorID)
 
-	// IsActorID 应该返回 true
 	if !handle.IsActorID() {
 		t.Error("ActorHandle should be actor ID")
 	}
 
-	// ToActorID 应该返回原 ActorID
 	extractedActorID := handle.ToActorID()
 	if !extractedActorID.Equal(actorID) {
 		t.Error("ToActorID should match original ActorID")
 	}
 }
 
-// TestLeaseIDConstants 测试 LeaseID 常量
 func TestLeaseIDConstants(t *testing.T) {
 	if LeaseIDSize != 32 {
 		t.Errorf("LeaseIDSize should be 32, got %d", LeaseIDSize)
@@ -582,9 +522,7 @@ func TestLeaseIDConstants(t *testing.T) {
 		t.Errorf("LeaseIDUniqueBytesSize should be 4, got %d", LeaseIDUniqueBytesSize)
 	}
 }
-// TestMurmurHash64ADeterministic 测试 MurmurHash64A 算法确定性
 func TestMurmurHash64ADeterministic(t *testing.T) {
-	// Hash 应该是确定性的
 	data := []byte{0x01, 0x02, 0x03, 0x04}
 	hash1 := murmurHash64A(data, 0)
 	hash2 := murmurHash64A(data, 0)
@@ -592,13 +530,11 @@ func TestMurmurHash64ADeterministic(t *testing.T) {
 		t.Error("Hash should be deterministic")
 	}
 
-	// 不同 seed 应该产生不同 hash
 	hashWithSeed := murmurHash64A(data, 123)
 	if hash1 == hashWithSeed {
 		t.Error("different seed should produce different hash")
 	}
 
-	// 不同输入应该产生不同 hash
 	differentData := []byte{0x05, 0x06, 0x07, 0x08}
 	hashDifferent := murmurHash64A(differentData, 0)
 	if hash1 == hashDifferent {
@@ -606,10 +542,6 @@ func TestMurmurHash64ADeterministic(t *testing.T) {
 	}
 }
 
-// TestMurmurHash64AConsistency 测试 MurmurHash64A 算法与 C++ 实现的一致性
-// 使用已知输入/输出验证算法正确性
-// 测试向量已与 src/ray/common/id.cc C++ 实现交叉验证
-// 算法参考：https://github.com/aappleby/smhasher
 func TestMurmurHash64AConsistency(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -617,22 +549,16 @@ func TestMurmurHash64AConsistency(t *testing.T) {
 		seed     uint64
 		expected uint64
 	}{
-		// 空输入
 		{"empty", []byte{}, 0, 0x0000000000000000},
 
-		// 单字节输入
 		{"single_byte_0", []byte{0x00}, 0, 0x5825f5f3bd962979},
 
-		// 4 字节输入 - Little Endian 读取，tail=4 使用 fallthrough 级联处理
 		{"four_bytes", []byte{0x01, 0x02, 0x03, 0x04}, 0, 0xf85cff3275df7618},
 
-		// 8 字节输入 - 完整块，无 tail
 		{"eight_bytes", []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}, 0, 0x88b2a580354486b7},
 
-		// 使用不同 seed
 		{"with_seed_123", []byte{0x01, 0x02, 0x03, 0x04}, 123, 0xdd24157c35af6563},
 
-		// 非对齐长度 (tail bytes) - 测试所有 tail 情况
 		{"tail_1", []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09}, 0, 0x7809ad84418c420a},
 		{"tail_2", []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a}, 0, 0xb253b7a3c002ff65},
 		{"tail_3", []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b}, 0, 0x1ea8a6c9357c85ea},
@@ -641,10 +567,8 @@ func TestMurmurHash64AConsistency(t *testing.T) {
 		{"tail_6", []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e}, 0, 0x7bde19805e305da3},
 		{"tail_7", []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f}, 0, 0x6c03db5b0458eff9},
 
-		// 16 字节 - 两个完整块
 		{"sixteen_bytes", []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10}, 0, 0x90285e3bad6bcddb},
 
-		// 典型 ID 大小测试
 		{"jobid_100", []byte{0x64, 0x00, 0x00, 0x00}, 0, 0x8b86c36089fc189c},
 		{"actorid_size", []byte{0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa}, 0, 0x161b5463ec6c88bc},
 		{"taskid_size", []byte{0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb}, 0, 0x7739043b6d04a5c8},
@@ -660,7 +584,6 @@ func TestMurmurHash64AConsistency(t *testing.T) {
 	}
 }
 
-// TestAllIDTypesSize 测试所有 ID 类型的大小
 func TestAllIDTypesSize(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -689,7 +612,6 @@ func TestAllIDTypesSize(t *testing.T) {
 	}
 }
 
-// TestAllIDTypesNilString 测试所有 ID 类型的空值字符串表示
 func TestAllIDTypesNilString(t *testing.T) {
 	// JobID
 	if NilJobID().String() != "NIL_ID" {
@@ -757,7 +679,6 @@ func TestAllIDTypesNilString(t *testing.T) {
 	}
 }
 
-// TestLeaseIDNil 测试空 LeaseID
 func TestLeaseIDNil(t *testing.T) {
 	nilID := NilLeaseID()
 	if !nilID.IsNil() {
@@ -765,21 +686,18 @@ func TestLeaseIDNil(t *testing.T) {
 	}
 }
 
-// TestLeaseIDFromWorker 测试从 WorkerID 创建 LeaseID
 func TestLeaseIDFromWorker(t *testing.T) {
 	workerID := NewWorkerID()
 	counter := uint32(123)
 
 	leaseID := LeaseIDFromWorker(workerID, counter)
 
-	// WorkerID 应该匹配
 	extractedWorkerID := leaseID.WorkerID()
 	if !extractedWorkerID.Equal(workerID) {
 		t.Error("LeaseID.WorkerID should match")
 	}
 }
 
-// TestLeaseIDBinaryAndHex 测试 LeaseID 的 Binary 和 Hex 方法
 func TestLeaseIDBinaryAndHex(t *testing.T) {
 	workerID := NewWorkerID()
 	leaseID := LeaseIDFromWorker(workerID, 123)
@@ -817,7 +735,6 @@ func TestLeaseIDBinaryAndHex(t *testing.T) {
 	}
 }
 
-// TestTaskIDForActorTask 测试 Actor Task 的 TaskID
 func TestTaskIDForActorTask(t *testing.T) {
 	jobID := JobIDFromInt(100)
 	parentTaskID := TaskIDForDriverTask(jobID)
@@ -825,20 +742,17 @@ func TestTaskIDForActorTask(t *testing.T) {
 
 	actorTask := TaskIDForActorTask(jobID, parentTaskID, 1, actorID)
 
-	// ActorID 应该匹配
 	extractedActorID := actorTask.ActorID()
 	if !extractedActorID.Equal(actorID) {
 		t.Error("ActorTask should contain correct ActorID")
 	}
 
-	// JobID 应该匹配
 	extractedJobID := actorTask.JobID()
 	if !extractedJobID.Equal(jobID) {
 		t.Error("ActorTask should contain correct JobID")
 	}
 }
 
-// TestTaskIDBinaryAndHex 测试 TaskID 的 Binary 和 Hex 方法
 func TestTaskIDBinaryAndHex(t *testing.T) {
 	jobID := JobIDFromInt(100)
 	taskID := TaskIDForDriverTask(jobID)
@@ -876,7 +790,6 @@ func TestTaskIDBinaryAndHex(t *testing.T) {
 	}
 }
 
-// TestActorIDBinaryAndHex 测试 ActorID 的 Binary 和 Hex 方法
 func TestActorIDBinaryAndHex(t *testing.T) {
 	jobID := JobIDFromInt(100)
 	parentTaskID := TaskIDForDriverTask(jobID)
@@ -915,7 +828,6 @@ func TestActorIDBinaryAndHex(t *testing.T) {
 	}
 }
 
-// TestObjectIDBinaryAndHex 测试 ObjectID 的 Binary 和 Hex 方法
 func TestObjectIDBinaryAndHex(t *testing.T) {
 	jobID := JobIDFromInt(100)
 	taskID := TaskIDForDriverTask(jobID)
@@ -954,7 +866,6 @@ func TestObjectIDBinaryAndHex(t *testing.T) {
 	}
 }
 
-// TestPlacementGroupIDBinaryAndHex 测试 PlacementGroupID 的 Binary 和 Hex 方法
 func TestPlacementGroupIDBinaryAndHex(t *testing.T) {
 	jobID := JobIDFromInt(100)
 	pgID := OfPlacementGroupID(jobID)
@@ -992,7 +903,6 @@ func TestPlacementGroupIDBinaryAndHex(t *testing.T) {
 	}
 }
 
-// TestDerivedIDTypesFull 测试所有派生类型的完整功能
 func TestDerivedIDTypesFull(t *testing.T) {
 	// WorkerID
 	workerID := NewWorkerID()
@@ -1107,7 +1017,6 @@ func TestDerivedIDTypesFull(t *testing.T) {
 	}
 }
 
-// TestUniqueIDHash 测试 UniqueID 的 Hash 方法
 func TestUniqueIDHash(t *testing.T) {
 	id := NewUniqueID()
 	hash := id.Hash()

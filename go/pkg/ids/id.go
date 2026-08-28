@@ -1,3 +1,18 @@
+// Copyright 2025 The Ray Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//  http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+
 package ids
 
 import (
@@ -11,7 +26,6 @@ import (
 	"unsafe"
 )
 
-// ID 大小常量定义
 const (
 	UniqueIDSize                    = 28
 	JobIDSize                       = 4
@@ -27,23 +41,21 @@ const (
 	LeaseIDUniqueBytesSize          = 4
 )
 
-// MaxObjectIndex 最大对象索引值
 const MaxObjectIndex int64 = (1 << ObjectIDIndexSize) - 1
 
-// idToHex 将字节数组转换为十六进制字符串
 func idToHex(data []byte) string {
 	return hex.EncodeToString(data)
 }
 
-// decodeHexToBytes 将十六进制字符串解码到目标字节数组
-// 直接解码到目标数组，避免双重分配
-// 优化：使用 unsafe 避免堆分配（只读场景）
+// decodeHexToBytes decodes into the destination array in place to avoid a
+// double allocation, and uses unsafe to avoid a heap allocation for the
+// read-only source string.
 func decodeHexToBytes(dst []byte, hexStr string) error {
 	expectedLen := len(dst)
 	if len(hexStr) != 2*expectedLen {
 		return errors.New("invalid hex string length")
 	}
-	// 使用 unsafe 避免堆分配（只读场景）
+	// Use unsafe to avoid a heap allocation (read-only path).
 	hexBytes := unsafe.Slice(unsafe.StringData(hexStr), len(hexStr))
 	n, err := hex.Decode(dst, hexBytes)
 	if err != nil {
@@ -55,7 +67,6 @@ func decodeHexToBytes(dst []byte, hexStr string) error {
 	return nil
 }
 
-// fillRandom 用随机字节填充给定切片
 func fillRandom(data []byte) {
 	_, err := rand.Read(data)
 	if err != nil {
@@ -63,13 +74,13 @@ func fillRandom(data []byte) {
 	}
 }
 
-// hasherPool 用于复用 sha256 hasher，减少高吞吐场景下的 GC 压力
+// hasherPool reuses sha256 hashers to reduce GC pressure on the high-throughput path.
 var hasherPool = sync.Pool{
 	New: func() interface{} { return sha256.New() },
 }
 
-// generateUniqueBytesInto 直接将唯一字节写入目标数组
-// 优化：避免 slice 逃逸到堆导致的双重分配
+// generateUniqueBytesInto writes the unique bytes in place, avoiding the double
+// allocation that would otherwise result from a slice escaping to the heap.
 func generateUniqueBytesInto(dst []byte, jobID JobID, parentTaskID TaskID,
 	counter uint64, extra int64,
 ) {
@@ -77,33 +88,30 @@ func generateUniqueBytesInto(dst []byte, jobID JobID, parentTaskID TaskID,
 	defer hasherPool.Put(h)
 	h.Reset()
 
-	// 写入 jobID
 	h.Write(jobID.data[:])
 
-	// 写入 parentTaskID
 	h.Write(parentTaskID.data[:])
 
-	// 写入 counter（使用栈分配避免堆分配）
+	// Write the counter, using a stack allocation to avoid a heap allocation.
 	var counterBytes [8]byte
 	binary.LittleEndian.PutUint64(counterBytes[:], counter)
 	h.Write(counterBytes[:])
 
-	// 写入 extra（可选，使用栈分配避免堆分配）
+	// Write the optional extra value, using a stack allocation to avoid a heap allocation.
 	if extra != 0 {
 		var extraBytes [8]byte
 		binary.LittleEndian.PutUint64(extraBytes[:], uint64(extra))
 		h.Write(extraBytes[:])
 	}
 
-	// 使用栈分配的数组接收哈希值
+	// Receive the hash into a stack-allocated array.
 	var hashBuf [sha256.Size]byte
 	h.Sum(hashBuf[:0])
 	copy(dst, hashBuf[:len(dst)])
 }
 
-// generateUniqueBytes 生成唯一字节用于 ActorID、TaskID 等
-// 使用 SHA256 替代 C++ SHA256 实现
-// 注意：此函数返回的 slice 会逃逸到堆，建议使用 generateUniqueBytesInto 直接写入目标
+// generateUniqueBytes returns the slice returned by this function, which escapes
+// to the heap; prefer generateUniqueBytesInto for direct in-place writes.
 func generateUniqueBytes(jobID JobID, parentTaskID TaskID,
 	counter uint64, extra int64, length int,
 ) []byte {

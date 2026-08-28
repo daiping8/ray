@@ -504,10 +504,10 @@ func NewSystemError(reason string) RayError {
 }
 
 // ============================================================================
-// Java 序列化专用错误
+// Java-serialization-specific errors
 // ============================================================================
-// 以下是与 Java RayTaskException 序列化格式兼容的错误类型定义。
-// 这些错误类型专门用于 CGO 边界的跨语言错误传播。
+// These error types are serialization-compatible with Java's RayTaskException
+// and are used for cross-language error propagation across the CGO boundary.
 
 // SerializedRayError is the serialized form of a Ray error.
 // Compatible with Java RayTaskException protobuf format.

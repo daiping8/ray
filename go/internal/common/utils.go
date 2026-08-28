@@ -1,3 +1,18 @@
+// Copyright 2025 The Ray Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//  http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+
 package common
 
 import (
@@ -6,8 +21,8 @@ import (
 	"path/filepath"
 )
 
-// InterfaceToStringSlice 将 interface{} 切片转换为 string 切片
-// 非 string 元素会被转换为空字符串
+// InterfaceToStringSlice converts an interface{} slice to a string slice.
+// Non-string elements are converted to empty strings.
 func InterfaceToStringSlice(v []interface{}) []string {
 	if v == nil {
 		return nil
@@ -21,8 +36,8 @@ func InterfaceToStringSlice(v []interface{}) []string {
 	return result
 }
 
-// InterfaceMapToStringMap 将 interface{} map 转换为 string map
-// 非 string 值会被跳过
+// InterfaceMapToStringMap converts an interface{} map to a string map.
+// Non-string values are skipped.
 func InterfaceMapToStringMap(v map[string]interface{}) map[string]string {
 	if v == nil {
 		return nil
@@ -36,10 +51,10 @@ func InterfaceMapToStringMap(v map[string]interface{}) map[string]string {
 	return result
 }
 
-// ConvertSlice 将 interface{} 值转换为 []T 类型
-// 如果 val 已经是 []T 类型，直接返回
-// 如果 val 是 []interface{} 类型，使用 converter 进行转换
-// 否则返回默认值
+// ConvertSlice converts an interface{} value to a []T.
+// If val is already []T, it is returned as-is.
+// If val is []interface{}, the converter is used.
+// Otherwise, the default value is returned.
 func ConvertSlice[T any](val interface{}, defaultValue []T, converter func([]interface{}) []T) []T {
 	if arr, ok := val.([]T); ok {
 		return arr
@@ -50,10 +65,10 @@ func ConvertSlice[T any](val interface{}, defaultValue []T, converter func([]int
 	return defaultValue
 }
 
-// ConvertMap 将 interface{} 值转换为 map[string]T 类型
-// 如果 val 已经是 map[string]T 类型，直接返回
-// 如果 val 是 map[string]interface{} 类型，使用 converter 进行转换
-// 否则返回默认值
+// ConvertMap converts an interface{} value to a map[string]T.
+// If val is already map[string]T, it is returned as-is.
+// If val is map[string]interface{}, the converter is used.
+// Otherwise, the default value is returned.
 func ConvertMap[T any](val interface{}, defaultValue map[string]T, converter func(map[string]interface{}) map[string]T) map[string]T {
 	if m, ok := val.(map[string]T); ok {
 		return m
@@ -64,9 +79,9 @@ func ConvertMap[T any](val interface{}, defaultValue map[string]T, converter fun
 	return defaultValue
 }
 
-// CopyAll 复制文件或目录
-// 如果 src 是目录，则递归复制整个目录
-// 如果 src 是文件，则复制单个文件
+// CopyAll copies a file or directory.
+// If src is a directory, the whole directory is copied recursively.
+// If src is a file, a single file is copied.
 func CopyAll(src, dst string) error {
 	info, err := os.Stat(src)
 	if err != nil {
@@ -79,8 +94,9 @@ func CopyAll(src, dst string) error {
 	return CopyFile(src, dst)
 }
 
-// CopyFile 复制单个文件
-// 打开源文件并创建目标文件，然后使用 io.Copy 进行内容复制
+// CopyFile copies a single file.
+// It opens the source file, creates the destination file, and copies the
+// content using io.Copy.
 func CopyFile(src, dst string) error {
 	srcFile, err := os.Open(src)
 	if err != nil {
@@ -98,8 +114,9 @@ func CopyFile(src, dst string) error {
 	return err
 }
 
-// CopyDir 递归复制目录
-// 创建目标目录并遍历源目录的所有条目，递归复制每个子项
+// CopyDir recursively copies a directory.
+// It creates the destination directory and walks every entry in the source,
+// recursively copying each child item.
 func CopyDir(src, dst string) error {
 	if err := os.MkdirAll(dst, 0755); err != nil {
 		return err
@@ -120,7 +137,7 @@ func CopyDir(src, dst string) error {
 	return nil
 }
 
-// DirSizeBytes 计算目录总大小（字节）
+// DirSizeBytes computes the total size of a directory (in bytes).
 func DirSizeBytes(dirPath string) (int64, error) {
 	var totalSize int64 = 0
 
@@ -145,7 +162,8 @@ func DirSizeBytes(dirPath string) (int64, error) {
 	return totalSize, nil
 }
 
-// DeduplicateStrings 去重字符串切片，保持原有顺序
+// DeduplicateStrings deduplicates a string slice while preserving the original
+// order.
 func DeduplicateStrings(items []string) []string {
 	if items == nil {
 		return nil

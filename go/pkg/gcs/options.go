@@ -1,3 +1,18 @@
+// Copyright 2025 The Ray Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//  http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+
 // Package gcs provides the Go client for Ray Global Control Store (GCS).
 package gcs
 
@@ -5,22 +20,22 @@ import (
 	"github.com/ray-project/ray/go/pkg/ids"
 )
 
-// ClientOptions GCS 客户端连接选项
+// ClientOptions holds the connection options for the GCS client.
 type ClientOptions struct {
-	// Address GCS 服务器地址，格式为 "host:port"
+	// Address is the GCS server address in the form "host:port".
 	Address string
-	// ClusterID 集群 ID，为空时自动获取
+	// ClusterID is the cluster ID; if empty it is fetched automatically.
 	ClusterID ids.ClusterID
-	// TimeoutMs 连接超时（毫秒）
+	// TimeoutMs is the connection timeout in milliseconds.
 	TimeoutMs int64
 }
 
-// GlobalStateOptions GlobalStateAccessor 连接选项
+// GlobalStateOptions holds the connection options for GlobalStateAccessor.
 type GlobalStateOptions struct {
-	// Address GCS 服务器地址，格式为 "host:port"
+	// Address is the GCS server address in the form "host:port".
 	Address string
-	// ClusterID 集群 ID，为空时自动获取
+	// ClusterID is the cluster ID; if empty it is fetched automatically.
 	ClusterID ids.ClusterID
-	// TimeoutMs 连接超时（毫秒）
+	// TimeoutMs is the connection timeout in milliseconds.
 	TimeoutMs int64
 }

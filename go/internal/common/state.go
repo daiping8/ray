@@ -1,3 +1,18 @@
+// Copyright 2025 The Ray Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//  http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+
 package common
 
 import (
@@ -13,20 +28,21 @@ import (
 
 var State = NewGlobalState()
 
-// GlobalState 全局状态管理器
 type GlobalState struct {
 	gcsOptions          *gcs.ClientOptions
 	globalStateAccessor gcs.GlobalStateAccessor
 	initLock            sync.Mutex
 }
 
-// NewGlobalState 创建新的GlobalState实例
+// NewGlobalState creates a new *GlobalState.
 //
-// 初始化逻辑：
-// 1. 创建空的GlobalState结构体
-// 2. gcsOptions初始为nil，由后续InitializeGlobalState设置（对应Python的_initialize_global_state）
-// 3. globalStateAccessor初始为nil，首次使用时通过ConnectAndGetAccessor创建
-// 4. initLock用于保护并发访问，确保线程安全
+// Initialization logic:
+// 1. Create an empty GlobalState struct.
+// 2. gcsOptions starts as nil and is set later by InitializeGlobalState
+//    (corresponds to Python's _initialize_global_state).
+// 3. globalStateAccessor starts as nil and is created on first use via
+//    ConnectAndGetAccessor.
+// 4. initLock guards concurrent access for thread safety.
 func NewGlobalState() *GlobalState {
 	return &GlobalState{
 		gcsOptions:          nil,
@@ -35,69 +51,70 @@ func NewGlobalState() *GlobalState {
 	}
 }
 
-// InitializeGlobalState 初始化GlobalState的GCS选项
+// InitializeGlobalState initializes the GCS options of GlobalState.
 func (s *GlobalState) InitializeGlobalState(opts *gcs.ClientOptions) {
 	s.initLock.Lock()
 	defer s.initLock.Unlock()
 	s.gcsOptions = opts
 }
 
-// ConnectAndGetAccessor 懒加载并返回已连接的GCS状态访问器
+// ConnectAndGetAccessor lazily connects and returns the GCS state accessor.
 //
-// 核心逻辑：
-// 1. 线程安全：使用initLock确保多线程环境下的原子操作
-// 2. 缓存检查：如果已有访问器则直接返回，避免重复连接
-// 3. 前置验证：检查gcsOptions是否已设置（即是否已调用InitializeGlobalState）
-// 4. 获取访问器：从全局单例获取GlobalStateAccessor
-// 5. 连接验证：尝试连接GCS服务器，失败时清理状态并返回错误
+// Core logic:
+// 1. Thread safety: initLock guarantees atomic operations in a multi-threaded
+//    environment.
+// 2. Cache check: return the existing accessor if present, avoiding a redundant
+//    connection.
+// 3. Precondition check: verify gcsOptions is set (i.e. InitializeGlobalState
+//    was called).
+// 4. Get the accessor from the global singleton.
+// 5. Connection check: attempt to connect to the GCS server, clearing state and
+//    returning an error on failure.
 func (s *GlobalState) ConnectAndGetAccessor() (gcs.GlobalStateAccessor, error) {
 	s.initLock.Lock()
 	defer s.initLock.Unlock()
 
-	// 缓存检查：如果已有访问器则直接返回
+	// Cache check: return the existing accessor if present.
 	if s.globalStateAccessor != nil {
 		return s.globalStateAccessor, nil
 	}
 
-	// 前置验证：检查gcsOptions是否已设置
+	// Precondition check: verify gcsOptions is set.
 	if s.gcsOptions == nil {
 		return nil, errors.New("Ray has not been started yet. Trying to use state API before InitializeGlobalState has been called")
 	}
 
-	// 获取全局访问器实例
 	accessor, err := gcs.GetGlobalStateAccessor()
 	if err != nil {
 		return nil, err
 	}
 
-	// 尝试连接GCS服务器
 	connected, err := accessor.Connect()
 	if err != nil || !connected {
 		s.globalStateAccessor = nil
-		// 连接失败时清理状态
+		// Clear the cached state when the connection fails.
 		if err == nil {
 			err = errors.New("failed to connect to GCS server")
 		}
 		return nil, err
 	}
 
-	// 缓存访问器引用
 	s.globalStateAccessor = accessor
 	return s.globalStateAccessor, nil
 }
 
-// Disconnect 断开与GCS的连接并清理资源
+// Disconnect disconnects from GCS and releases resources.
 //
-// 清理操作：
-// 1. 重置gcsOptions为nil，标记需要重新初始化
-// 2. 释放globalStateAccessor引用，允许垃圾回收
+// Clean-up operations:
+// 1. Reset gcsOptions to nil, marking that re-initialization is required.
+// 2. Release the globalStateAccessor reference, allowing garbage collection.
 func (s *GlobalState) Disconnect() error {
 	s.initLock.Lock()
 	defer s.initLock.Unlock()
 
 	s.gcsOptions = nil
 	if s.globalStateAccessor != nil {
-		// 关闭访问器连接
+		// Close the accessor's connection.
 		s.globalStateAccessor.Close()
 		s.globalStateAccessor = nil
 	}
@@ -105,40 +122,38 @@ func (s *GlobalState) Disconnect() error {
 	return nil
 }
 
-// AddWorker 向集群中添加Worker信息
+// AddWorker adds Worker information to the cluster.
 //
-// 核心功能：
-// 1. 获取GCS状态访问器（懒加载连接）
-// 2. 构建WorkerTableData protobuf消息
-// 3. 设置Worker的基本属性（存活状态、ID、类型）
-// 4. 将workerInfo map转换为protobuf的map字段
-// 5. 调用accessor.AddWorkerInfo将数据写入GCS
+// Core functionality:
+// 1. Get the GCS state accessor (lazy connection).
+// 2. Build the WorkerTableData protobuf message.
+// 3. Set the basic Worker attributes (liveness, ID, and type).
+// 4. Convert the workerInfo map into a protobuf map field.
+// 5. Call accessor.AddWorkerInfo to write the data to GCS.
 func (s *GlobalState) AddWorker(workerID ids.WorkerID, workerType proto.WorkerType, workerInfo map[string]string) error {
 	accessor, err := s.ConnectAndGetAccessor()
 	if err != nil {
 		return fmt.Errorf("failed to get GCS accessor: %w", err)
 	}
 
-	// 转换workerInfo为[]byte格式（protobuf要求）
+	// Convert workerInfo to []byte format, as required by protobuf.
 	byteWorkerInfo := make(map[string][]byte)
 	for k, v := range workerInfo {
 		byteWorkerInfo[k] = []byte(v)
 	}
-	// 构建WorkerTableData消息
 	workerData := &proto.WorkerTableData{
 		IsAlive:    true,
 		WorkerType: workerType,
 		WorkerInfo: byteWorkerInfo,
-		Timestamp:  time.Now().UnixNano() / 1e6, // 毫秒时间戳
+		Timestamp:  time.Now().UnixNano() / 1e6, // Timestamp in milliseconds.
 	}
 
-	// 设置Worker地址（包含Worker ID）
-	// 注意：WorkerId字段是[]byte类型，需要从UniqueID获取二进制数据
+	// Set the Worker address (includes the Worker ID).
+	// Note: WorkerId is a []byte field and requires binary data from UniqueID.
 	workerData.WorkerAddress = &proto.Address{
 		WorkerId: workerID.Binary(),
 	}
 
-	// 直接调用accessor.AddWorkerInfo将数据写入GCS
 	success, err := accessor.AddWorkerInfo(workerData)
 	if err != nil {
 		return fmt.Errorf("failed to add worker info to GCS: %w", err)

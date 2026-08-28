@@ -75,22 +75,18 @@ func TestRayError_Interface(t *testing.T) {
 		t.Fatal("NewRayError should not return nil")
 	}
 
-	// 测试 Code() 方法
 	if code := err.Code(); code != "TEST_CODE" {
 		t.Errorf("Code() = %v, expected TEST_CODE", code)
 	}
 
-	// 测试 Category() 方法
 	if cat := err.Category(); cat != CategoryRuntime {
 		t.Errorf("Category() = %v, expected %v", cat, CategoryRuntime)
 	}
 
-	// 测试 IsRetryable() 方法
 	if !err.IsRetryable() {
 		t.Error("IsRetryable() should return true")
 	}
 
-	// 测试 Error() 方法
 	expectedMsg := "[TEST_CODE] test message"
 	if err.Error() != expectedMsg {
 		t.Errorf("Error() = %v, expected %v", err.Error(), expectedMsg)
@@ -109,14 +105,12 @@ func TestRayError_WithWrappedError(t *testing.T) {
 		t.Fatal("WrapRayError should not return nil")
 	}
 
-	// 测试 Error() 方法包含被包装的错误
 	errMsg := err.Error()
 	expectedSubstr := "wrapped error"
 	if !strings.Contains(errMsg, expectedSubstr) {
 		t.Errorf("Error() = %v, should contain %v", errMsg, expectedSubstr)
 	}
 
-	// 测试 Unwrap() 方法
 	unwrapped := errors.Unwrap(err)
 	if unwrapped != wrappedErr {
 		t.Errorf("Unwrap() = %v, expected %v", unwrapped, wrappedErr)
@@ -182,7 +176,6 @@ func TestGetRayErrorCode(t *testing.T) {
 		t.Errorf("GetRayErrorCode() = %v, expected MY_CODE", code)
 	}
 
-	// 测试非 RayError
 	standardErr := errors.New("standard error")
 	code = GetRayErrorCode(standardErr)
 	if code != "" {

@@ -8,12 +8,12 @@ import (
 )
 
 func TestFromContext_NoLogger(t *testing.T) {
-	// 重置 Log 为初始状态
+	// Reset Log to its initial state.
 	Log = logr.New(NewDelegatingLogSink())
 
 	ctx := context.Background()
 	logger := FromContext(ctx)
-	// 应返回全局 Log
+	// Should return the global Log when no logger is in the context.
 	if logger.GetSink() == nil {
 		t.Error("FromContext should return global Log when no logger in context")
 	}
@@ -36,9 +36,7 @@ func TestFromContext_WithLogger(t *testing.T) {
 func TestFromContextOrDiscard_NoLogger(t *testing.T) {
 	ctx := context.Background()
 	logger := FromContextOrDiscard(ctx)
-	// Discard logger 不应 panic
 	logger.Info("test message")
-	// 无错误即通过
 }
 
 func TestFromContextOrDiscard_WithLogger(t *testing.T) {
@@ -75,13 +73,13 @@ func TestIntoContext(t *testing.T) {
 }
 
 func TestFromContext_ReturnsGlobalLog(t *testing.T) {
-	// 重置 Log 为初始状态
+	// Reset Log to its initial state.
 	Log = logr.New(NewDelegatingLogSink())
 
 	ctx := context.Background()
 	logger := FromContext(ctx)
 
-	// 应该返回全局 Log 的 sink
+	// Should return the global Log's sink.
 	if logger.GetSink() != Log.GetSink() {
 		t.Error("FromContext should return global Log when context has no logger")
 	}
@@ -96,9 +94,9 @@ func TestIntoContext_Overwrite(t *testing.T) {
 	testSink2 := &testLogSink{}
 	testLogger2 := logr.New(testSink2)
 
-	// 第一次设置
+	// First set.
 	ctx1 := IntoContext(ctx, testLogger1)
-	// 第二次设置（覆盖）
+	// Second set, overwriting the first.
 	ctx2 := IntoContext(ctx1, testLogger2)
 
 	retrievedLogger := FromContext(ctx2)

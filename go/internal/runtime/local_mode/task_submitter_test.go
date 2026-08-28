@@ -16,10 +16,12 @@ package local_mode
 
 import (
 	"testing"
+	"time"
 
+	"github.com/ray-project/ray/go/internal/runtime/objectstore"
 	"github.com/ray-project/ray/go/pkg/ids"
 	"github.com/ray-project/ray/go/pkg/runtime/function"
-	"github.com/ray-project/ray/go/internal/runtime/objectstore"
+	"github.com/ray-project/ray/go/pkg/runtime/object"
 	"github.com/ray-project/ray/go/pkg/runtime/submitter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -126,4 +128,49 @@ func TestLocalModeTaskSubmitter(t *testing.T) {
 
 		taskSubmitter.Shutdown()
 	})
+}
+
+// TestDependentTaskNoDeadlock reproduces the deadlock that occurred when a
+// task dependent on an unready ObjectRef was executed from checkWaitingTasks
+// while holding the non-reentrant taskAndObjectLock. Submitting the dependent
+// task must return, and putting the dependency must not deadlock.
+func TestDependentTaskNoDeadlock(t *testing.T) {
+	objectStore := objectstore.NewLocalModeObjectStore()
+	workerContext := NewLocalModeWorkerContext()
+	functionMgr := function.NewFunctionManager(nil)
+	actorMgr := NewActorConcurrencyGroupManager()
+	taskExecutor := NewLocalModeTaskExecutor(functionMgr, actorMgr, objectStore)
+	taskSubmitter := NewLocalModeTaskSubmitter(objectStore, workerContext, taskExecutor, functionMgr)
+	defer taskSubmitter.Shutdown()
+
+	funcDesc := function.NewGoFunctionDescriptorOrUnknown("test", "", "TestMethod")
+
+	// A freshly created object ID is not in the store yet, so it is unready.
+	depRef, err := objectStore.PutRaw(object.NewNativeRayObject([]byte{1}, []byte{}))
+	require.NoError(t, err)
+
+	// This task depends on depRef, which is not ready yet -> submitted but
+	// parked in waitingTasks.
+	arg := function.NewFunctionArgByRef(*depRef, nil)
+	done := make(chan struct{})
+	go func() {
+		_, _ = taskSubmitter.SubmitTask(funcDesc, []function.FunctionArg{arg}, 1, nil)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("SubmitTask blocked: possible deadlock")
+	}
+
+	// Making the dependency ready triggers checkWaitingTasks.
+	depData := object.NewNativeRayObject([]byte{2}, []byte{})
+	require.NoError(t, objectStore.PutRawWithID(depData, depRef))
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("task did not progress after dependency became ready: possible deadlock")
+	}
 }

@@ -1,3 +1,18 @@
+// Copyright 2025 The Ray Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//  http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+
 // Package gcs provides the Go client for Ray Global Control Store (GCS).
 package gcs
 
@@ -8,41 +23,41 @@ import (
 	"github.com/ray-project/ray/go/pkg/ids"
 )
 
-// ErrorData 错误数据结构
-// 对应 Python GcsErrorSubscriber 中的错误数据格式
+// ErrorData is the error data structure in the format used by the Python
+// GcsErrorSubscriber.
 type ErrorData struct {
-	// JobID 关联的作业 ID
+	// JobID is the related job ID.
 	JobID ids.JobID
-	// Type 错误类型
+	// Type is the error type.
 	Type string
-	// ErrorMessage 详细错误描述
+	// ErrorMessage is the detailed error description.
 	ErrorMessage string
-	// Timestamp Unix 时间戳（毫秒）
+	// Timestamp is the Unix timestamp in milliseconds.
 	Timestamp int64
 }
 
-// String 实现 fmt.Stringer 接口
+// String implements fmt.Stringer.
 func (e ErrorData) String() string {
 	return fmt.Sprintf("ErrorData{JobID: %s, Type: %s, Message: %s, Time: %s}",
 		e.JobID.Hex(), e.Type, e.ErrorMessage, time.UnixMilli(e.Timestamp))
 }
 
-// LogData 日志数据结构
-// 对应 Python GcsLogSubscriber 中的日志数据格式
+// LogData is the log data structure in the format used by the Python
+// GcsLogSubscriber.
 type LogData struct {
-	// IP 来源 IP 地址
+	// IP is the source IP address.
 	IP string
-	// PID 进程 ID
+	// PID is the process ID.
 	PID uint32
-	// JobID 关联的作业 ID
+	// JobID is the related job ID.
 	JobID ids.JobID
-	// IsError 是否为错误日志
+	// IsError indicates whether this is an error log.
 	IsError bool
-	// ActorName Actor 名称（如适用）
+	// ActorName is the actor name, if applicable.
 	ActorName string
-	// TaskName 任务名称（如适用）
+	// TaskName is the task name, if applicable.
 	TaskName string
-	// Lines 日志文本行
+	// Lines are the log text lines.
 	Lines []string
 }
 
@@ -58,7 +73,7 @@ type LogBatchPayload struct {
 	TaskName  string
 }
 
-// String 实现 fmt.Stringer 接口
+// String implements fmt.Stringer.
 func (l LogData) String() string {
 	return fmt.Sprintf("LogData{IP: %s, PID: %d, JobID: %s, IsError: %v, Lines: %d}",
 		l.IP, l.PID, l.JobID.Hex(), l.IsError, len(l.Lines))

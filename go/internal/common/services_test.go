@@ -6,14 +6,11 @@ import (
 	"testing"
 )
 
-// TestRayHomeAndPath 测试 RAY_PATH 变量的初始化
 func TestRayHomeAndPath(t *testing.T) {
-	// 验证 RAY_PATH 不为空
 	if RAY_PATH == "" {
 		t.Error("RAY_PATH should not be empty")
 	}
 
-	// 验证 RAY_PATH 是一个有效的目录
 	info, err := os.Stat(RAY_PATH)
 	if err != nil {
 		t.Errorf("RAY_PATH should be a valid directory: %v", err)
@@ -22,17 +19,13 @@ func TestRayHomeAndPath(t *testing.T) {
 	}
 }
 
-// TestGetRayJarsDir 测试 GetRayJarsDir 函数
 func TestGetRayJarsDir(t *testing.T) {
-	// 保存原始的 RAY_PATH
 	originalRayPath := RAY_PATH
 	defer func() {
 		RAY_PATH = originalRayPath
 	}()
 
-	// 测试 1: 当 jars 目录不存在时，应该返回错误
 	t.Run("jars directory not exists", func(t *testing.T) {
-		// 设置一个不存在的临时目录作为 RAY_PATH
 		tempDir := t.TempDir()
 		RAY_PATH = tempDir
 
@@ -42,9 +35,7 @@ func TestGetRayJarsDir(t *testing.T) {
 		}
 	})
 
-	// 测试 2: 当 jars 目录存在时，应该返回正确的路径
 	t.Run("jars directory exists", func(t *testing.T) {
-		// 创建临时目录结构
 		tempDir := t.TempDir()
 		jarsDir := filepath.Join(tempDir, "jars")
 		err := os.Mkdir(jarsDir, 0755)
@@ -66,9 +57,7 @@ func TestGetRayJarsDir(t *testing.T) {
 	})
 }
 
-// TestGetRayJarsDirWithEnv 测试使用环境变量设置 RAY_PATH 的情况
 func TestGetRayJarsDirWithEnv(t *testing.T) {
-	// 保存原始的环境变量和 RAY_PATH
 	originalRayPath := os.Getenv("RAY_PATH")
 	originalRayPathVar := RAY_PATH
 	defer func() {
@@ -80,7 +69,6 @@ func TestGetRayJarsDirWithEnv(t *testing.T) {
 		RAY_PATH = originalRayPathVar
 	}()
 
-	// 设置临时的 RAY_PATH 环境变量
 	tempDir := t.TempDir()
 	jarsDir := filepath.Join(tempDir, "jars")
 	err := os.Mkdir(jarsDir, 0755)
@@ -90,7 +78,7 @@ func TestGetRayJarsDirWithEnv(t *testing.T) {
 
 	os.Setenv("RAY_PATH", tempDir)
 
-	// 重新初始化 RAY_PATH（模拟 init 函数的行为）
+	// Re-initialize RAY_PATH to mirror what the package init function does.
 	RAY_PATH = os.Getenv("RAY_PATH")
 
 	result, err := GetRayJarsDir()

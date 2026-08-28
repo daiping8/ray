@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestNewGlobalState 测试创建GlobalState实例
 func TestNewGlobalState(t *testing.T) {
 	state := NewGlobalState()
 
@@ -32,7 +31,6 @@ func TestNewGlobalState(t *testing.T) {
 	assert.Nil(t, state.globalStateAccessor)
 }
 
-// TestGlobalState_InitializeGlobalState 测试InitializeGlobalState方法
 func TestGlobalState_InitializeGlobalState(t *testing.T) {
 	t.Run("正常初始化", func(t *testing.T) {
 		state := NewGlobalState()
@@ -74,7 +72,6 @@ func TestGlobalState_InitializeGlobalState(t *testing.T) {
 	})
 }
 
-// TestGlobalState_ConnectAndGetAccessor 测试ConnectAndGetAccessor方法
 func TestGlobalState_ConnectAndGetAccessor(t *testing.T) {
 	t.Run("未初始化时调用返回错误", func(t *testing.T) {
 		state := NewGlobalState()
@@ -94,7 +91,7 @@ func TestGlobalState_ConnectAndGetAccessor(t *testing.T) {
 		}
 		state.InitializeGlobalState(opts)
 
-		// 由于没有设置全局访问器，GetGlobalStateAccessor会返回ErrNotImplemented
+		// Without a global accessor set, GetGlobalStateAccessor returns ErrNotImplemented.
 		accessor, err := state.ConnectAndGetAccessor()
 		assert.Error(t, err)
 		assert.Nil(t, accessor)
@@ -102,7 +99,6 @@ func TestGlobalState_ConnectAndGetAccessor(t *testing.T) {
 	})
 }
 
-// TestGlobalState_Disconnect 测试Disconnect方法
 func TestGlobalState_Disconnect(t *testing.T) {
 	t.Run("未初始化时断开连接", func(t *testing.T) {
 		state := NewGlobalState()
@@ -115,7 +111,6 @@ func TestGlobalState_Disconnect(t *testing.T) {
 	})
 }
 
-// TestGlobalState_AddWorker 测试AddWorker方法
 func TestGlobalState_AddWorker(t *testing.T) {
 	t.Run("获取访问器失败", func(t *testing.T) {
 		state := NewGlobalState()
@@ -131,7 +126,6 @@ func TestGlobalState_AddWorker(t *testing.T) {
 	})
 }
 
-// TestGlobalState_Concurrency 测试并发安全性
 func TestGlobalState_Concurrency(t *testing.T) {
 	t.Run("并发调用InitializeGlobalState", func(t *testing.T) {
 		state := NewGlobalState()
@@ -152,12 +146,10 @@ func TestGlobalState_Concurrency(t *testing.T) {
 			<-done
 		}
 
-		// 不应该panic
 		assert.NotNil(t, state.gcsOptions)
 	})
 }
 
-// BenchmarkGlobalState_InitializeGlobalState 基准测试：InitializeGlobalState性能
 func BenchmarkGlobalState_InitializeGlobalState(b *testing.B) {
 	state := NewGlobalState()
 	opts := &gcs.ClientOptions{

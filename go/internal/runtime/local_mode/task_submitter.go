@@ -95,7 +95,7 @@ func (s *LocalModeTaskSubmitter) SubmitTask(
 ) ([]ids.ObjectID, error) {
 	jobID := s.workerContext.GetCurrentJobID()
 	parentTaskID := ids.NilTaskID()
-	taskID := ids.TaskIDForNormalTask(jobID, parentTaskID, uint64(rand.Intn(1000000)))
+	taskID := ids.TaskIDForNormalTask(jobID, parentTaskID, rand.Uint64())
 
 	spec := &taskSpec{
 		taskType:           base.TaskTypeNormal,
@@ -124,7 +124,7 @@ func (s *LocalModeTaskSubmitter) CreateActor(
 
 	jobID := s.workerContext.GetCurrentJobID()
 	parentTaskID := ids.NilTaskID()
-	actorID := ids.OfActorID(jobID, parentTaskID, uint64(rand.Intn(1000000)))
+	actorID := ids.OfActorID(jobID, parentTaskID, rand.Uint64())
 	maxConcurrency := options.MaxConcurrency
 	if maxConcurrency <= 0 {
 		maxConcurrency = 1
@@ -174,7 +174,7 @@ func (s *LocalModeTaskSubmitter) SubmitActorTask(
 ) ([]ids.ObjectID, error) {
 	jobID := s.workerContext.GetCurrentJobID()
 	parentTaskID := ids.NilTaskID()
-	taskID := ids.TaskIDForActorTask(jobID, parentTaskID, uint64(rand.Intn(1000000)), actorID)
+	taskID := ids.TaskIDForActorTask(jobID, parentTaskID, rand.Uint64(), actorID)
 
 	spec := &taskSpec{
 		taskType:           base.TaskTypeActorTask,
@@ -288,13 +288,28 @@ func (s *LocalModeTaskSubmitter) executeTaskSpec(spec *taskSpec) {
 		returnObjects, err = s.taskExecutor.Execute(spec.functionDescriptor, spec.args, spec.numReturns)
 	}
 
+	// Put return objects into object store
+	returnIds := s.getReturnIds(spec.taskID, spec.numReturns)
+
 	if err != nil {
-		// Log error but don't fail - local mode is lenient
+		// Serialize the error as a task-execution exception object and put it
+		// into the return slot, so a caller Get()ing this ObjectRef receives the
+		// failure instead of blocking forever on a never-ready object.
+		excBytes, serErr := (&object.RayExceptionSerializer{}).ToBytes(
+			object.NewRayTaskExecutionException(spec.taskID.String(), err, ""))
+		if serErr == nil {
+			excObj := &object.NativeRayObject{
+				Data:     excBytes,
+				Metadata: []byte(object.MetadataTypeTaskExecutionException),
+			}
+			if len(returnIds) > 0 {
+				s.objectStore.PutRawWithID(excObj, &returnIds[0])
+			}
+		}
+		s.checkWaitingTasks()
 		return
 	}
 
-	// Put return objects into object store
-	returnIds := s.getReturnIds(spec.taskID, spec.numReturns)
 	for i, returnObj := range returnObjects {
 		if i < len(returnIds) {
 			obj := &object.NativeRayObject{
@@ -343,11 +358,15 @@ func (s *LocalModeTaskSubmitter) getUnreadyObjects(spec *taskSpec) []ids.ObjectI
 }
 
 // checkWaitingTasks checks waiting tasks and submits any that are now ready.
+//
+// executeTaskSpec puts return objects into the object store, which triggers
+// the onObjectPut callback (checkWaitingTasks) that re-acquires
+// taskAndObjectLock; holding the lock during execution would deadlock since
+// sync.Mutex is non-reentrant. Tasks are collected under the lock and executed
+// after it is released.
 func (s *LocalModeTaskSubmitter) checkWaitingTasks() {
 	s.taskAndObjectLock.Lock()
-	defer s.taskAndObjectLock.Unlock()
 
-	// Collect tasks to execute (to avoid holding lock during execution)
 	tasksToExecute := make([]*taskSpec, 0)
 
 	s.waitingTasks.Range(func(key, value interface{}) bool {
@@ -368,7 +387,9 @@ func (s *LocalModeTaskSubmitter) checkWaitingTasks() {
 		return true
 	})
 
-	// Execute ready tasks
+	s.taskAndObjectLock.Unlock()
+
+	// Execute ready tasks outside the lock.
 	for _, task := range tasksToExecute {
 		s.executeTaskSpec(task)
 	}

@@ -21,13 +21,13 @@ func TestDelegatingLogSink_Fulfill(t *testing.T) {
 	delegate := NewDelegatingLogSink()
 	logger := logr.New(delegate)
 
-	// fulfill 前记录日志（使用 NullLogSink，无输出）
+	// Log before fulfill (uses NullLogSink, no output).
 	logger.Info("before fulfill", "key", "value1")
 
 	testSink := &testLogSink{}
 	delegate.Fulfill(testSink)
 
-	// fulfill 后记录日志
+	// Log after fulfill.
 	logger.Info("after fulfill", "key", "value2")
 
 	if testSink.lastMsg != "after fulfill" {
@@ -37,7 +37,7 @@ func TestDelegatingLogSink_Fulfill(t *testing.T) {
 
 func TestDelegatingLogSink_Enabled_BeforeFulfill(t *testing.T) {
 	delegate := NewDelegatingLogSink()
-	// fulfill 前，使用 NullLogSink，Enabled 返回 false
+	// Before fulfill, NullLogSink is used and Enabled returns false.
 	if delegate.Enabled(0) {
 		t.Error("Enabled should return false before fulfill")
 	}
@@ -48,7 +48,7 @@ func TestDelegatingLogSink_Enabled_AfterFulfill(t *testing.T) {
 	testSink := &testLogSink{}
 	delegate.Fulfill(testSink)
 
-	// fulfill 后，使用 testLogSink，Enabled 返回 true
+	// After fulfill, testLogSink is used and Enabled returns true.
 	if !delegate.Enabled(0) {
 		t.Error("Enabled should return true after fulfill")
 	}
@@ -80,7 +80,7 @@ func TestDelegatingLogSink_WithName(t *testing.T) {
 	loggerWithName := logger.WithName("worker")
 	loggerWithName.Info("test message", "key", "value")
 
-	// WithName 应在消息前添加 "worker: "
+	// WithName should prepend "worker: " to the message.
 	if testSink.lastMsg != "worker: test message" {
 		t.Errorf("expected 'worker: test message', got '%s'", testSink.lastMsg)
 	}
@@ -116,12 +116,12 @@ func TestDelegatingLogSink_WithNameAndValues(t *testing.T) {
 	loggerWithNameAndValues := logger.WithName("component").WithValues("preset_key", "preset_value")
 	loggerWithNameAndValues.Info("test message", "dynamic_key", "dynamic_value")
 
-	// 检查名称前缀
+	// The message should carry the name prefix.
 	if testSink.lastMsg != "component: test message" {
 		t.Errorf("expected 'component: test message', got '%s'", testSink.lastMsg)
 	}
 
-	// 检查预设键值对存在
+	// The preset key-value pairs should be present.
 	found := false
 	for i := 0; i < len(testSink.lastKeysAndValues); i += 2 {
 		if testSink.lastKeysAndValues[i] == "preset_key" {
@@ -143,7 +143,7 @@ func TestDelegatingLogSink_DoubleFulfill(t *testing.T) {
 	testSink2 := &testLogSink{}
 	delegate.Fulfill(testSink2)
 
-	// 第二次 fulfill 应覆盖第一次
+	// The second fulfill should override the first.
 	logger := logr.New(delegate)
 	logger.Info("test message")
 
@@ -156,16 +156,16 @@ func TestDelegatingLogSink_BeforeFulfill_WithValues(t *testing.T) {
 	delegate := NewDelegatingLogSink()
 	logger := logr.New(delegate)
 
-	// fulfill 前使用 WithValues
+	// Use WithValues before fulfill.
 	loggerWithValues := logger.WithValues("preset_key", "preset_value")
 
 	testSink := &testLogSink{}
 	delegate.Fulfill(testSink)
 
-	// fulfill 后记录日志
+	// Log after fulfill.
 	loggerWithValues.Info("test message", "dynamic_key", "dynamic_value")
 
-	// 预设的键值对应被包含
+	// The preset key-value pairs should be included.
 	found := false
 	for i := 0; i < len(testSink.lastKeysAndValues); i += 2 {
 		if testSink.lastKeysAndValues[i] == "preset_key" {
@@ -182,13 +182,13 @@ func TestDelegatingLogSink_BeforeFulfill_WithName(t *testing.T) {
 	delegate := NewDelegatingLogSink()
 	logger := logr.New(delegate)
 
-	// fulfill 前使用 WithName
+	// Use WithName before fulfill.
 	loggerWithName := logger.WithName("worker")
 
 	testSink := &testLogSink{}
 	delegate.Fulfill(testSink)
 
-	// fulfill 后记录日志
+	// Log after fulfill.
 	loggerWithName.Info("test message")
 
 	if testSink.lastMsg != "worker: test message" {
@@ -196,7 +196,7 @@ func TestDelegatingLogSink_BeforeFulfill_WithName(t *testing.T) {
 	}
 }
 
-// TestDelegatingLogSink_NestedWithName_Error 测试嵌套 WithName 的 Error 方法
+// TestDelegatingLogSink_NestedWithName_Error tests the Error method with a nested WithName.
 func TestDelegatingLogSink_NestedWithName_Error(t *testing.T) {
 	delegate := NewDelegatingLogSink()
 	testSink := &testLogSink{}
@@ -210,7 +210,7 @@ func TestDelegatingLogSink_NestedWithName_Error(t *testing.T) {
 	}
 }
 
-// TestDelegatingLogSink_NestedWithName_WithValues 测试 WithName 后 WithValues
+// TestDelegatingLogSink_NestedWithName_WithValues tests WithValues applied after WithName.
 func TestDelegatingLogSink_NestedWithName_WithValues(t *testing.T) {
 	delegate := NewDelegatingLogSink()
 	testSink := &testLogSink{}
@@ -219,13 +219,13 @@ func TestDelegatingLogSink_NestedWithName_WithValues(t *testing.T) {
 	logger := logr.New(delegate).WithName("worker").WithValues("preset", "value")
 	logger.Info("test message", "dynamic", "key")
 
-	// 检查消息包含 name
+	// The recorded name should be "worker".
 	if testSink.lastName != "worker" {
 		t.Errorf("expected name 'worker', got '%s'", testSink.lastName)
 	}
 }
 
-// TestDelegatingLogSink_NestedWithValues_WithName 测试 WithValues 后 WithName
+// TestDelegatingLogSink_NestedWithValues_WithName tests WithName applied after WithValues.
 func TestDelegatingLogSink_NestedWithValues_WithName(t *testing.T) {
 	delegate := NewDelegatingLogSink()
 	testSink := &testLogSink{}
@@ -239,7 +239,7 @@ func TestDelegatingLogSink_NestedWithValues_WithName(t *testing.T) {
 	}
 }
 
-// TestDelegatingLogSink_ChainedWithValues 测试链式 WithValues
+// TestDelegatingLogSink_ChainedWithValues tests chained WithValues.
 func TestDelegatingLogSink_ChainedWithValues(t *testing.T) {
 	delegate := NewDelegatingLogSink()
 	testSink := &testLogSink{}
@@ -248,7 +248,7 @@ func TestDelegatingLogSink_ChainedWithValues(t *testing.T) {
 	logger := logr.New(delegate).WithValues("key1", "val1").WithValues("key2", "val2")
 	logger.Info("test message")
 
-	// 检查所有键值对存在
+	// Both key-value pairs should be present.
 	foundKey1 := false
 	foundKey2 := false
 	for i := 0; i < len(testSink.lastKeysAndValues); i += 2 {
@@ -264,7 +264,7 @@ func TestDelegatingLogSink_ChainedWithValues(t *testing.T) {
 	}
 }
 
-// TestDelegatingLogSink_ChainedWithName 测试链式 WithName
+// TestDelegatingLogSink_ChainedWithName tests chained WithName.
 func TestDelegatingLogSink_ChainedWithName(t *testing.T) {
 	delegate := NewDelegatingLogSink()
 	testSink := &testLogSink{}

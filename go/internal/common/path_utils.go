@@ -1,3 +1,18 @@
+// Copyright 2025 The Ray Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//  http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+
 package common
 
 import (
@@ -6,45 +21,47 @@ import (
 	"strings"
 )
 
-// IsPath 检查字符串是否是文件路径而非 URI
+// IsPath reports whether a string is a filesystem path rather than a URI.
 //
-// 返回 True 如果输入是路径，否则返回 False。
+// Returns true if the input is a path, otherwise false.
 //
-// Windows 路径以驱动器名称开头，这可能会被 urlparse 解释为 URI scheme，
-// 因此需要与 POSIX 路径区别对待。
+// Windows paths begin with a drive name, which urlparse would interpret as a
+// URI scheme, so they must be treated differently from POSIX paths.
 //
-// 例如：创建目录会返回路径 'C:\Users\mp5n6ul72w\working_dir'，
-// 它的 scheme 将是 'C:'。
+// For example, creating a directory returns a path like
+// 'C:\Users\mp5n6ul72w\working_dir', whose scheme would be 'C:'.
 func IsPath(pathOrURI string) bool {
 	parsedURI, err := url.Parse(pathOrURI)
 	if err != nil {
 		return true
 	}
 
-	// 根据运行时操作系统判断路径类型
+	// Choose the path-type logic based on the runtime OS.
 	if runtime.GOOS == "windows" {
-		// Windows 平台：使用 PureWindowsPath 逻辑
+		// Windows: follow the PureWindowsPath logic.
 		drive := getWindowsDrive(pathOrURI)
 		if drive != "" {
-			// 盘符路径：scheme 应等于盘符字母（小写），例如 "c" 对应 "C:"
+			// Drive path: the scheme must equal the drive letter (lower-cased),
+			// e.g. "c" corresponds to "C:".
 			// pathlib.PureWindowsPath("C:\\path").drive == "C:"
 			// urlparse("C:\\path").scheme == "c"
 			return strings.ToLower(parsedURI.Scheme) == strings.ToLower(strings.TrimSuffix(drive, ":"))
 		}
-		// 其他 Windows 路径（包含反斜杠）：没有 scheme 则是路径
+		// Other Windows paths (containing backslashes): it is a path if there is no scheme.
 		if strings.Contains(pathOrURI, `\`) {
 			return parsedURI.Scheme == ""
 		}
-		// 其他情况：没有 scheme 则是路径
+		// Otherwise: it is a path if there is no scheme.
 		return parsedURI.Scheme == ""
 	}
 
-	// POSIX 平台：使用 PurePosixPath 逻辑 - 没有 scheme 则是路径
+	// POSIX: follow the PurePosixPath logic - it is a path if there is no scheme.
 	return parsedURI.Scheme == ""
 }
 
-// getWindowsDrive 从 Windows 路径获取盘符（如 "C:"）
-// 如果是有效的 Windows 盘符路径（如 C:\ 或 C:/），返回盘符加冒号；否则返回空字符串
+// getWindowsDrive returns the drive of a Windows path (e.g. "C:").
+// If the path is a valid Windows drive path (such as C:\ or C:/), it returns the
+// drive letter plus a colon; otherwise it returns an empty string.
 func getWindowsDrive(path string) string {
 	if len(path) < 2 {
 		return ""
@@ -54,7 +71,7 @@ func getWindowsDrive(path string) string {
 	if !isLetter || path[1] != ':' {
 		return ""
 	}
-	// 检查第三个字符是否是路径分隔符（\ 或 /）或者已经到字符串末尾
+	// Check that the third character is a path separator (\ or /) or the end of the string.
 	if len(path) == 2 || path[2] == '\\' || path[2] == '/' {
 		return path[:2]
 	}

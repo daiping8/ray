@@ -71,37 +71,32 @@ func TestNewRaw(t *testing.T) {
 }
 
 func TestTeeOutputSeparation(t *testing.T) {
-	// 使用两个 observer 来分别捕获 stdout 和 stderr 级别的日志
-	// observer.New 返回的是 Core，可以直接在 Tee 中使用
+	// Use two observers to capture stdout and stderr level logs separately.
+	// observer.New returns a Core that can be used directly in a Tee.
 	stdoutCore, stdoutLogs := observer.New(zap.DebugLevel)
 	stderrCore, stderrLogs := observer.New(zap.WarnLevel)
 
-	// 创建 level enablers - 这些会被 observer 内部处理
-	// stdout 允许 Debug 和 Info（不包含 Warn）
+	// stdout allows Debug and Info (not Warn); stderr allows Warn and Error.
 	stdoutLevel := zap.LevelEnablerFunc(func(l zapcore.Level) bool {
 		return l < zapcore.WarnLevel
 	})
-	// stderr 允许 Warn 和 Error
 	stderrLevel := zap.LevelEnablerFunc(func(l zapcore.Level) bool {
 		return l >= zapcore.WarnLevel
 	})
 
-	// 直接使用 observer Core，通过级别过滤
-	// 创建包装 core 来应用级别过滤
+	// Wrap the observer cores to apply the level filtering.
 	wrappedStdout := &levelFilteredCore{inner: stdoutCore, enabler: stdoutLevel}
 	wrappedStderr := &levelFilteredCore{inner: stderrCore, enabler: stderrLevel}
 
-	// 创建 Tee
 	teeCore := zapcore.NewTee(wrappedStdout, wrappedStderr)
 	logger := zap.New(teeCore)
 
-	// 测试各级别日志
 	logger.Debug("debug message")
 	logger.Info("info message")
 	logger.Warn("warn message")
 	logger.Error("error message")
 
-	// 验证 stdout 只接收 Debug 和 Info
+	// Verify stdout only receives Debug and Info.
 	stdoutEntries := stdoutLogs.All()
 	if len(stdoutEntries) != 2 {
 		t.Errorf("stdout expected 2 entries, got %d", len(stdoutEntries))
@@ -117,7 +112,7 @@ func TestTeeOutputSeparation(t *testing.T) {
 		}
 	}
 
-	// 验证 stderr 只接收 Warn 和 Error
+	// Verify stderr only receives Warn and Error.
 	stderrEntries := stderrLogs.All()
 	if len(stderrEntries) != 2 {
 		t.Errorf("stderr expected 2 entries, got %d", len(stderrEntries))
@@ -134,7 +129,7 @@ func TestTeeOutputSeparation(t *testing.T) {
 	}
 }
 
-// levelFilteredCore 包装 Core 以应用额外的级别过滤
+// levelFilteredCore wraps a Core to apply additional level filtering.
 type levelFilteredCore struct {
 	inner   zapcore.Core
 	enabler zapcore.LevelEnabler
@@ -209,7 +204,7 @@ func TestLevelFiltering(t *testing.T) {
 			stdoutCore, stdoutLogs := observer.New(zap.DebugLevel)
 			stderrCore, stderrLogs := observer.New(zap.WarnLevel)
 
-			// 创建带 minLevel 过滤的 level enablers
+			// Create level enablers filtered by minLevel.
 			stdoutLevel := zap.LevelEnablerFunc(func(l zapcore.Level) bool {
 				return l >= tt.minLevel && l < zapcore.WarnLevel
 			})
@@ -360,7 +355,6 @@ func TestBuildZapLogger(t *testing.T) {
 				t.Error("buildZapLogger() returned nil logger")
 			}
 
-			// 测试日志写入
 			logger.Info("test message")
 			logger.Sync()
 		})
@@ -368,7 +362,6 @@ func TestBuildZapLogger(t *testing.T) {
 }
 
 func TestConsoleEncoder(t *testing.T) {
-	// 测试 Console 编码器输出格式
 	var buf bytes.Buffer
 	encoder := zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig())
 	core := zapcore.NewCore(encoder, zapcore.AddSync(&buf), zapcore.InfoLevel)
@@ -386,7 +379,6 @@ func TestConsoleEncoder(t *testing.T) {
 }
 
 func TestJSONEncoder(t *testing.T) {
-	// 测试 JSON 编码器输出格式
 	var buf bytes.Buffer
 	encoder := zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
 	core := zapcore.NewCore(encoder, zapcore.AddSync(&buf), zapcore.InfoLevel)

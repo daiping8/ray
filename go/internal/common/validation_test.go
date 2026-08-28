@@ -191,36 +191,31 @@ func TestBuildAddress(t *testing.T) {
 		wantErr     bool
 		description string
 	}{
-		// IPv4地址测试
 		{"IPv4 localhost", "127.0.0.1", 6379, "127.0.0.1:6379", false, "IPv4 localhost should return host:port"},
 		{"IPv4 zero", "0.0.0.0", 8080, "0.0.0.0:8080", false, "IPv4 zero address should return host:port"},
 		{"IPv4 standard", "192.168.1.1", 80, "192.168.1.1:80", false, "IPv4 standard address should return host:port"},
 		{"IPv4 public", "8.8.8.8", 443, "8.8.8.8:443", false, "IPv4 public address should return host:port"},
 
-		// IPv6地址测试
 		{"IPv6 localhost", "::1", 6379, "[::1]:6379", false, "IPv6 localhost should return [host]:port"},
 		{"IPv6 all zeros", "::", 8080, "[::]:8080", false, "IPv6 all zeros should return [host]:port"},
 		{"IPv6 full", "2001:0db8:85a3:0000:0000:8a2e:0370:7334", 80, "[2001:0db8:85a3:0000:0000:8a2e:0370:7334]:80", false, "Full IPv6 should return [host]:port"},
 		{"IPv6 compressed", "2001:db8::1", 443, "[2001:db8::1]:443", false, "Compressed IPv6 should return [host]:port"},
 		{"IPv6 link-local", "fe80::1", 8080, "[fe80::1]:8080", false, "Link-local IPv6 should return [host]:port"},
 
-		// 主机名测试
 		{"hostname localhost", "localhost", 6379, "localhost:6379", false, "Hostname localhost should return host:port"},
 		{"hostname with domain", "example.com", 443, "example.com:443", false, "Hostname with domain should return host:port"},
 		{"hostname subdomain", "api.example.com", 8080, "api.example.com:8080", false, "Subdomain hostname should return host:port"},
 
-		// 边界端口值测试
 		{"port zero", "127.0.0.1", 0, "127.0.0.1:0", false, "Port zero should be valid"},
 		{"port min", "127.0.0.1", 1, "127.0.0.1:1", false, "Port 1 should be valid"},
 		{"port max", "127.0.0.1", 65535, "127.0.0.1:65535", false, "Port 65535 should be valid"},
 		{"port http", "127.0.0.1", 80, "127.0.0.1:80", false, "HTTP port 80 should be valid"},
 		{"port https", "127.0.0.1", 443, "127.0.0.1:443", false, "HTTPS port 443 should be valid"},
 
-		// 特殊IPv6格式测试
 		{"IPv6 mapped IPv4", "::ffff:192.0.2.1", 80, "[::ffff:192.0.2.1]:80", false, "IPv6-mapped IPv4 should return [host]:port"},
 		{"IPv6 loopback", "::1", 6379, "[::1]:6379", false, "IPv6 loopback should return [host]:port"},
 
-		// 负端口测试（虽然函数不验证，但应该能处理）
+		// Negative ports are not validated by BuildAddress but must still be handled.
 		{"negative port", "127.0.0.1", -1, "127.0.0.1:-1", true, "Negative port should still format correctly"},
 	}
 

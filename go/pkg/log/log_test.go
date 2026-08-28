@@ -7,17 +7,16 @@ import (
 )
 
 func TestSetLogger_NilLogger(t *testing.T) {
-	// 重置 Log 为初始状态
+	// Reset Log to its initial state.
 	Log = logr.New(NewDelegatingLogSink())
 
 	SetLogger(logr.Logger{})
 	Log.Info("test message", "key", "value")
 	Log.Error(nil, "test error", "key", "value")
-	// 不应 panic
 }
 
 func TestSetLogger_ValidLogger(t *testing.T) {
-	// 重置 Log 为初始状态
+	// Reset Log to its initial state.
 	Log = logr.New(NewDelegatingLogSink())
 
 	testSink := &testLogSink{}
@@ -37,15 +36,15 @@ func TestSetLogger_ValidLogger(t *testing.T) {
 }
 
 func TestSetLogger_ReplaceLogger(t *testing.T) {
-	// 重置 Log 为初始状态
+	// Reset Log to its initial state.
 	Log = logr.New(NewDelegatingLogSink())
 
-	// 第一次设置
+	// First set.
 	testSink1 := &testLogSink{}
 	testLogger1 := logr.New(testSink1)
 	SetLogger(testLogger1)
 
-	// 第二次设置（直接替换，不再使用 DelegatingLogSink）
+	// Second set directly replaces the logger, no longer using DelegatingLogSink.
 	testSink2 := &testLogSink{}
 	testLogger2 := logr.New(testSink2)
 	Log = testLogger2
@@ -56,18 +55,18 @@ func TestSetLogger_ReplaceLogger(t *testing.T) {
 	}
 }
 
-// TestSetLogger_NonDelegatingLogger 测试替换非 DelegatingLogSink
+// TestSetLogger_NonDelegatingLogger tests replacing a non-DelegatingLogSink.
 func TestSetLogger_NonDelegatingLogger(t *testing.T) {
-	// 重置 Log 为初始状态
+	// Reset Log to its initial state.
 	Log = logr.New(NewDelegatingLogSink())
 
-	// 先设置一个普通 logger
+	// Set a normal logger first.
 	testSink1 := &testLogSink{}
 	testLogger1 := logr.New(testSink1)
 	SetLogger(testLogger1)
 	Log.Info("first message", "key", "value1")
 
-	// 替换为另一个 logger
+	// Replace with another logger.
 	testSink2 := &testLogSink{}
 	testLogger2 := logr.New(testSink2)
 	SetLogger(testLogger2)
@@ -79,7 +78,7 @@ func TestSetLogger_NonDelegatingLogger(t *testing.T) {
 }
 
 func TestWithName(t *testing.T) {
-	// 重置 Log 为初始状态
+	// Reset Log to its initial state.
 	Log = logr.New(NewDelegatingLogSink())
 
 	testSink := &testLogSink{}
@@ -89,14 +88,14 @@ func TestWithName(t *testing.T) {
 	namedLogger := WithName("worker")
 	namedLogger.Info("named message")
 
-	// WithName 会将名称添加到消息前缀
+	// WithName adds the name as a message prefix.
 	if testSink.lastMsg != "worker: named message" {
 		t.Errorf("expected 'worker: named message', got '%s'", testSink.lastMsg)
 	}
 }
 
 func TestWithValues(t *testing.T) {
-	// 重置 Log 为初始状态
+	// Reset Log to its initial state.
 	Log = logr.New(NewDelegatingLogSink())
 
 	testSink := &testLogSink{}
@@ -109,7 +108,7 @@ func TestWithValues(t *testing.T) {
 	if testSink.lastMsg != "valued message" {
 		t.Errorf("expected 'valued message', got '%s'", testSink.lastMsg)
 	}
-	// WithValues 添加的键值对会自动附加到每条日志
+	// The key-value pairs added by WithValues are automatically appended to every log.
 	if len(testSink.lastKeysAndValues) < 4 {
 		t.Errorf("expected at least 4 keysAndValues, got %d", len(testSink.lastKeysAndValues))
 	}

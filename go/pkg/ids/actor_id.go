@@ -1,3 +1,18 @@
+// Copyright 2025 The Ray Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//  http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+
 package ids
 
 import (
@@ -6,7 +21,6 @@ import (
 	"time"
 )
 
-// ActorID 16 字节的 Actor ID 类型
 type ActorID struct {
 	data [ActorIDSize]byte
 }
@@ -16,22 +30,20 @@ var nilActorID = ActorID{data: [ActorIDSize]byte{
 	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 }}
 
-// NilActorID 返回空的 ActorID
 func NilActorID() ActorID { return nilActorID }
 
-// OfActorID 从 JobID、parent TaskID 和 counter 创建 ActorID
+// OfActorID uses the current timestamp as the extra parameter so that the same
+// combination of jobID, parentTaskID, and counter still yields a distinct ID.
 func OfActorID(jobID JobID, parentTaskID TaskID, counter uint64) ActorID {
-	// 使用当前时间戳作为 extra 参数，避免相同参数组合产生相同 ID
 	extra := time.Now().UnixNano()
 
 	var id ActorID
-	// 使用 generateUniqueBytesInto 直接写入目标，避免双重分配
+	// Write directly into the destination via generateUniqueBytesInto to avoid a double allocation.
 	generateUniqueBytesInto(id.data[:ActorIDUniqueBytesSize], jobID, parentTaskID, counter, extra)
 	copy(id.data[ActorIDUniqueBytesSize:], jobID.data[:])
 	return id
 }
 
-// ActorIDNilFromJob 从 JobID 创建空的 ActorID
 func ActorIDNilFromJob(jobID JobID) ActorID {
 	var id ActorID
 	copy(id.data[:ActorIDUniqueBytesSize], nilActorID.data[:ActorIDUniqueBytesSize])
@@ -39,7 +51,6 @@ func ActorIDNilFromJob(jobID JobID) ActorID {
 	return id
 }
 
-// ActorIDFromBinary 从字节数组创建 ActorID
 func ActorIDFromBinary(data []byte) (ActorID, error) {
 	if len(data) != ActorIDSize {
 		return nilActorID, errors.New("invalid ActorID length")
@@ -49,8 +60,7 @@ func ActorIDFromBinary(data []byte) (ActorID, error) {
 	return id, nil
 }
 
-// ActorIDFromHex 从十六进制字符串创建 ActorID
-// 优化：直接解码到结构体数组，避免双重分配
+// ActorIDFromHex decodes directly into the struct array to avoid a double allocation.
 func ActorIDFromHex(hexStr string) (ActorID, error) {
 	var id ActorID
 	if err := decodeHexToBytes(id.data[:], hexStr); err != nil {
@@ -59,12 +69,10 @@ func ActorIDFromHex(hexStr string) (ActorID, error) {
 	return id, nil
 }
 
-// IsNil 检查 ActorID 是否为空
 func (id ActorID) IsNil() bool {
 	return bytes.Equal(id.data[:], nilActorID.data[:])
 }
 
-// JobID 从 ActorID 提取 JobID
 func (id ActorID) JobID() JobID {
 	if id.IsNil() {
 		return nilJobID
@@ -74,13 +82,10 @@ func (id ActorID) JobID() JobID {
 	return jobID
 }
 
-// Binary 返回 ActorID 的字节数组表示
 func (id ActorID) Binary() []byte { return id.data[:] }
 
-// Hex 返回 ActorID 的十六进制字符串表示
 func (id ActorID) Hex() string { return idToHex(id.data[:]) }
 
-// String 返回 ActorID 的字符串表示
 func (id ActorID) String() string {
 	if id.IsNil() {
 		return "NIL_ID"
@@ -88,13 +93,10 @@ func (id ActorID) String() string {
 	return id.Hex()
 }
 
-// Hash 计算 ActorID 的哈希值
 func (id ActorID) Hash() uint64 { return murmurHash64A(id.data[:], 0) }
 
-// Size 返回 ActorID 的大小
 func (id ActorID) Size() int { return ActorIDSize }
 
-// Equal 比较两个 ActorID 是否相等
 func (id ActorID) Equal(other ActorID) bool {
 	return bytes.Equal(id.data[:], other.data[:])
 }

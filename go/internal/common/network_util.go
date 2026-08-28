@@ -33,29 +33,30 @@ type testAddress struct {
 	protocol string
 }
 
-// GetNodeIpAddress 获取节点IP地址
-// 
-// 本函数实现了与C++ (src/ray/util/network_util.cc:GetNodeIpAddressFromPerspective)
-// 和Python (python/ray/includes/network_util.pxi)相同的IP地址检测算法。
-// 三种语言实现共享以下核心逻辑：
-// 1. 优先使用提供的address参数进行socket连接检测
-// 2. 回退到外部连接性检测（UDP到公共DNS服务器）
-// 3. 再次回退到主机名解析
-// 4. 最终默认返回127.0.0.1
+// GetNodeIpAddress returns the IP address of this node.
 //
-// 参考实现：
+// This function implements the same IP detection algorithm as C++
+// (src/ray/util/network_util.cc:GetNodeIpAddressFromPerspective)
+// and Python (python/ray/includes/network_util.pxi). All three languages
+// share the following core logic:
+// 1. Prefer the provided address parameter for a socket-connectivity check.
+// 2. Fall back to an external connectivity check (UDP to a public DNS server).
+// 3. Fall back again to hostname resolution.
+// 4. Finally, default to 127.0.0.1.
+//
+// Reference implementations:
 // - C++: src/ray/util/network_util.cc:257-327
 // - Python: python/ray/includes/network_util.pxi:1-9
 func GetNodeIpAddress(address *string) string {
 
-	// 1. 非集群模式下返回localhost IP
+	// In non-cluster mode, return the localhost IP directly.
 	if !EnableRayCluster() {
 		nodeIp := GetLocalhostIP()
 		log.Log.V(1).Info("Using localhost IP (non-cluster mode)", "ip", nodeIp)
 		return nodeIp
 	}
 
-	// 2. 集群模式下检测节点IP
+	// In cluster mode, detect the node IP address.
 	nodeIp := GetNodeIpAddressFromPerspective(address)
 	log.Log.V(1).Info("Detected node IP address", "ip", nodeIp, "perspective", address)
 	return nodeIp

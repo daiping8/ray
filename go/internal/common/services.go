@@ -1,3 +1,18 @@
+// Copyright 2025 The Ray Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//  http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+
 package common
 
 import (
@@ -8,21 +23,23 @@ import (
 	"strings"
 )
 
-// RAY_PATH Ray Go 包绝对路径，用于构建 jars 等资源路径
-// 对应 Python: os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+// RAY_PATH is the absolute path of the Ray Go package, used to build resource
+// paths such as jars.
+// Corresponds to Python: os.path.abspath(os.path.dirname(os.path.dirname(__file__))).
 var RAY_PATH string
 
 func init() {
-	// 优先使用环境变量 RAY_PATH
+	// Prefer the RAY_PATH environment variable.
 	rayPath := os.Getenv("RAY_PATH")
 	if rayPath == "" {
-		// 使用 runtime.Caller(0) 获取当前文件路径，比 os.Args[0] 更可靠
+		// Use runtime.Caller(0) to locate the current file, which is more
+		// reliable than os.Args[0].
 		_, currentFile, _, ok := runtime.Caller(0)
 		var currentDir string
 		if ok {
 			currentDir = filepath.Dir(currentFile)
 		} else {
-			// 如果无法获取，使用当前工作目录
+			// Fall back to the current working directory if unavailable.
 			currentDir, _ = os.Getwd()
 		}
 		rayPath = filepath.Dir(filepath.Dir(filepath.Dir(currentDir)))
@@ -31,10 +48,11 @@ func init() {
 	RAY_PATH = rayPath
 }
 
-// GetRayJarsDir 返回一个目录，其中包含所有 Ray 相关的 jars 及其依赖
-// 对应 Python: get_ray_jars_dir()
-// 返回：jars 目录的绝对路径
-// 错误：如果 jars 目录不存在，返回错误
+// GetRayJarsDir returns the directory containing all Ray-related jars and their
+// dependencies.
+// Corresponds to Python: get_ray_jars_dir().
+// Returns: the absolute path of the jars directory.
+// Errors: returns an error if the jars directory does not exist.
 func GetRayJarsDir() (string, error) {
 	jarsDir := filepath.Join(RAY_PATH, "jars")
 	absJarsDir, err := filepath.Abs(jarsDir)
@@ -42,7 +60,7 @@ func GetRayJarsDir() (string, error) {
 		return "", fmt.Errorf("failed to get absolute path for jars dir: %w", err)
 	}
 
-	// 检查 jars 目录是否存在
+	// Check whether the jars directory exists.
 	if _, err := os.Stat(absJarsDir); os.IsNotExist(err) {
 		return "", fmt.Errorf("jars directory does not exist: %s", absJarsDir)
 	}
@@ -50,21 +68,21 @@ func GetRayJarsDir() (string, error) {
 	return absJarsDir, nil
 }
 
-// ExpandUser 展开路径中的 ~ 符号为用户主目录
+// ExpandUser expands a leading ~ in a path to the user's home directory.
 func ExpandUser(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" || path[0] != '~' {
 		return path, nil
 	}
 
-	// 获取用户主目录
+	// Get the user's home directory.
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get user home directory: %w", err)
 	}
 
-	// 构建完整路径
-	// 移除 ~
+	// Build the joined path.
+	// Strip the leading ~.
 	relativePath := path[1:]
 	relativePath = strings.TrimSpace(relativePath)
 	if len(relativePath) > 0 && relativePath[0] == '/' {
@@ -74,13 +92,11 @@ func ExpandUser(path string) (string, error) {
 	return filepath.Join(homeDir, relativePath), nil
 }
 
-// PathExists 检查路径是否存在
 func PathExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
 
-// PathIsDir 检查路径是否是目录
 func PathIsDir(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil {

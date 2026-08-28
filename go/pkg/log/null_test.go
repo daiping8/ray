@@ -9,13 +9,11 @@ import (
 
 func TestNullLogSink_Info(t *testing.T) {
 	sink := &NullLogSink{}
-	// 不应 panic
 	sink.Info(0, "test message", "key", "value")
 }
 
 func TestNullLogSink_Error(t *testing.T) {
 	sink := &NullLogSink{}
-	// 不应 panic
 	sink.Error(errors.New("test error"), "test message", "key", "value")
 }
 
@@ -47,6 +45,5 @@ func TestNullLogSink_WithValues_ReturnsSelf(t *testing.T) {
 
 func TestNullLogSink_Init(t *testing.T) {
 	sink := &NullLogSink{}
-	// 不应 panic
 	sink.Init(logr.RuntimeInfo{})
 }

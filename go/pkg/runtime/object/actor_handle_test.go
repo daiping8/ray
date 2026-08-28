@@ -20,9 +20,7 @@ import (
 	"github.com/ray-project/ray/go/pkg/ids"
 )
 
-// TestNativeActorHandle_Serialize 测试 ActorHandle 序列化
 func TestNativeActorHandle_Serialize(t *testing.T) {
-	// 创建测试用的 ActorID 和 ActorHandleID
 	jobID := ids.JobIDFromInt(100)
 	taskID := ids.NilTaskID()
 	actorID := ids.OfActorID(jobID, taskID, 1)
@@ -40,7 +38,6 @@ func TestNativeActorHandle_Serialize(t *testing.T) {
 		},
 	}
 
-	// 测试序列化
 	nativeObj, err := handle.Serialize()
 	if err != nil {
 		t.Fatalf("Serialize() error = %v", err)
@@ -54,13 +51,11 @@ func TestNativeActorHandle_Serialize(t *testing.T) {
 		t.Errorf("Serialize() metadata = %v, want %v", string(nativeObj.Metadata), MetadataTypeActorHandle)
 	}
 
-	// 验证 ContainedObjectIds 是否设置
 	if len(nativeObj.ContainedObjectIds) == 0 {
 		t.Error("Serialize() ContainedObjectIds not set")
 	}
 }
 
-// TestNativeActorHandle_SerializeNilActorID 测试 ActorID 为 nil 的情况
 func TestNativeActorHandle_SerializeNilActorID(t *testing.T) {
 	handle := &NativeActorHandle{
 		ActorID:  ids.NilActorID(),
@@ -73,9 +68,7 @@ func TestNativeActorHandle_SerializeNilActorID(t *testing.T) {
 	}
 }
 
-// TestDeserializeActorHandle 测试 ActorHandle 反序列化
 func TestDeserializeActorHandle(t *testing.T) {
-	// 创建测试用的 ActorID 和 ActorHandleID
 	jobID := ids.JobIDFromInt(100)
 	taskID := ids.NilTaskID()
 	actorID := ids.OfActorID(jobID, taskID, 2)
@@ -93,13 +86,11 @@ func TestDeserializeActorHandle(t *testing.T) {
 		},
 	}
 
-	// 先序列化
 	nativeObj, err := originalHandle.Serialize()
 	if err != nil {
 		t.Fatalf("Serialize() error = %v", err)
 	}
 
-	// 再反序列化
 	deserializedHandle, err := DeserializeActorHandle(nativeObj)
 	if err != nil {
 		t.Fatalf("DeserializeActorHandle() error = %v", err)
@@ -109,22 +100,18 @@ func TestDeserializeActorHandle(t *testing.T) {
 		t.Fatal("DeserializeActorHandle() result = nil")
 	}
 
-	// 验证 ActorID
 	if deserializedHandle.ActorID != originalHandle.ActorID {
 		t.Errorf("ActorID mismatch: got %v, want %v", deserializedHandle.ActorID, originalHandle.ActorID)
 	}
 
-	// 验证 Language
 	if deserializedHandle.Language != originalHandle.Language {
 		t.Errorf("Language mismatch: got %v, want %v", deserializedHandle.Language, originalHandle.Language)
 	}
 
-	// 验证 ActorHandleID
 	if deserializedHandle.ActorHandleID != originalHandle.ActorHandleID {
 		t.Errorf("ActorHandleID mismatch: got %v, want %v", deserializedHandle.ActorHandleID, originalHandle.ActorHandleID)
 	}
 
-	// 验证 OwnerAddress
 	if deserializedHandle.OwnerAddress == nil {
 		t.Fatal("OwnerAddress is nil")
 	}
@@ -142,7 +129,6 @@ func TestDeserializeActorHandle(t *testing.T) {
 	}
 }
 
-// TestDeserializeActorHandle_InvalidMetadata 测试无效元数据
 func TestDeserializeActorHandle_InvalidMetadata(t *testing.T) {
 	nativeObj := &NativeRayObject{
 		Data:     []byte("test data"),
@@ -155,7 +141,6 @@ func TestDeserializeActorHandle_InvalidMetadata(t *testing.T) {
 	}
 }
 
-// TestDeserializeActorHandle_NilObject 测试 nil 对象
 func TestDeserializeActorHandle_NilObject(t *testing.T) {
 	_, err := DeserializeActorHandle(nil)
 	if err == nil {
@@ -163,7 +148,6 @@ func TestDeserializeActorHandle_NilObject(t *testing.T) {
 	}
 }
 
-// BenchmarkActorHandle_Serialize 序列化性能基准测试
 func BenchmarkActorHandle_Serialize(b *testing.B) {
 	jobID := ids.JobIDFromInt(100)
 	taskID := ids.NilTaskID()
@@ -190,7 +174,6 @@ func BenchmarkActorHandle_Serialize(b *testing.B) {
 	}
 }
 
-// BenchmarkActorHandle_Deserialize 反序列化性能基准测试
 func BenchmarkActorHandle_Deserialize(b *testing.B) {
 	jobID := ids.JobIDFromInt(100)
 	taskID := ids.NilTaskID()

@@ -135,7 +135,7 @@ func TestDirSizeBytes(t *testing.T) {
 	})
 
 	t.Run("file instead of directory returns file size", func(t *testing.T) {
-		// 注意：DirSizeBytes 使用 filepath.WalkDir，当传入文件时也会返回该文件的大小
+		// DirSizeBytes uses filepath.WalkDir, so passing a file returns that file's size.
 		tmpDir := t.TempDir()
 		testFile := filepath.Join(tmpDir, "test.txt")
 		content := []byte("test content")
@@ -150,7 +150,6 @@ func TestDirSizeBytes(t *testing.T) {
 	t.Run("large files", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		largeFile := filepath.Join(tmpDir, "large.bin")
-		// 创建一个 1MB 的文件
 		largeContent := make([]byte, 1024*1024)
 		err := os.WriteFile(largeFile, largeContent, 0644)
 		assert.NoError(t, err)

@@ -1,3 +1,18 @@
+// Copyright 2025 The Ray Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//  http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+
 package common
 
 import (
@@ -7,22 +22,20 @@ import (
 	"github.com/gofrs/flock"
 )
 
-// AsyncFileLock 异步文件锁，是可复用的并发控制组件
 type AsyncFileLock struct {
 	lock *flock.Flock
 }
 
-// NewAsyncFileLock 创建新的异步文件锁
 func NewAsyncFileLock(lockFile string) *AsyncFileLock {
 	return &AsyncFileLock{
 		lock: flock.New(lockFile),
 	}
 }
 
-// Acquire 获取锁（带上下文支持）
-// 使用 TryLockContext 方法，周期性重试直到获取锁或上下文取消
+// Acquire acquires the lock using TryLockContext, periodically retrying until
+// the lock is acquired or the context is cancelled.
 func (l *AsyncFileLock) Acquire(ctx context.Context) error {
-	// 使用 100ms 间隔尝试获取锁
+	// Retry acquiring the lock at a 100ms interval.
 	retryDuration := 100 * time.Millisecond
 	for {
 		select {
@@ -40,7 +53,6 @@ func (l *AsyncFileLock) Acquire(ctx context.Context) error {
 	}
 }
 
-// Release 释放锁
 func (l *AsyncFileLock) Release() {
 	if l.lock != nil {
 		_ = l.lock.Unlock()

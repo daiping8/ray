@@ -6,7 +6,6 @@ import (
 )
 
 func TestIsPath_PosixPath(t *testing.T) {
-	// 跳过 Windows 平台测试
 	if runtime.GOOS == "windows" {
 		t.Skip("Skipping POSIX test on Windows")
 	}
@@ -54,7 +53,6 @@ func TestIsPath_PosixPath(t *testing.T) {
 }
 
 func TestIsPath_Uri(t *testing.T) {
-	// 跳过 Windows 平台测试
 	if runtime.GOOS == "windows" {
 		t.Skip("Skipping URI test on Windows")
 	}
@@ -102,7 +100,6 @@ func TestIsPath_Uri(t *testing.T) {
 }
 
 func TestIsPath_WindowsPath_DriveLetter(t *testing.T) {
-	// 仅在 Windows 平台测试
 	if runtime.GOOS != "windows" {
 		t.Skip("Skipping Windows drive letter test on non-Windows")
 	}
@@ -150,7 +147,6 @@ func TestIsPath_WindowsPath_DriveLetter(t *testing.T) {
 }
 
 func TestIsPath_WindowsPath_NetworkAndRelative(t *testing.T) {
-	// 仅在 Windows 平台测试
 	if runtime.GOOS != "windows" {
 		t.Skip("Skipping Windows network/relative path test on non-Windows")
 	}
