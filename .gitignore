@@ -255,6 +255,9 @@ CLAUDE.local.md
 .worktrees/
 .claude/worktrees/
 
+# SDD workspace (plan scratch)
+.superpowers/
+
 # Local-only build environment (internal mirrors) not meant for the public repo.
 bazel/rewrite.txt
 
