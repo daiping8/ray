@@ -376,6 +376,9 @@ WorkerPool::BuildProcessCommandArgs(const Language &language,
     worker_command_args.push_back("--ray_runtime_env_hash=" +
                                   std::to_string(runtime_env_hash));
   } else if (language == Language::GO) {
+    // Pass the worker ID the raylet assigned so the Go worker registers back
+    // under the same ID; otherwise the raylet rejects the registration.
+    worker_command_args.push_back("--worker-id=" + worker_id.Hex());
     // Note: the startup-token argument is added together with the Go worker
     // entrypoint migration; the startup token counter does not exist in this
     // codebase's worker pool.
@@ -792,6 +795,18 @@ static bool NeedToEagerInstallRuntimeEnv(const rpc::JobConfig &job_config) {
 
 void WorkerPool::HandleJobStarted(const JobID &job_id, const rpc::JobConfig &job_config) {
   if (all_jobs_.find(job_id) != all_jobs_.end()) {
+    // A job id is being reused across independent runs (e.g. a driver that is
+    // run repeatedly with the same RAY_JOB_ID on a persistent cluster). The id
+    // was marked finished when the previous run ended, which would force-exit
+    // any newly spawned workers for this (now active again) job. Remove the
+    // finished marker so the new run's workers are not killed before they can
+    // be assigned tasks.
+    if (finished_jobs_.contains(job_id)) {
+      RAY_LOG(INFO) << "Job " << job_id
+                    << " was previously finished but is starting again; removing it "
+                       "from finished jobs.";
+      finished_jobs_.erase(job_id);
+    }
     RAY_LOG(INFO) << "Job " << job_id << " already started in worker pool.";
     return;
   }

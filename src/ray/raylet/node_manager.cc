@@ -1329,6 +1329,26 @@ Status NodeManager::ProcessRegisterClientRequestMessageImpl(
         });
   };
 
+  // A worker that successfully (re-)registers is demonstrably alive again, so
+  // it must not remain in the failed-workers cache. Otherwise any subsequent
+  // lease request from this worker_id would be rejected as "caller is dead",
+  // even though the worker is running and connected. This can happen when a
+  // driver or worker reuses a deterministic worker_id across independent runs
+  // on a persistent cluster: the previous run's exit (even a graceful one) is
+  // reported to GCS, which notifies the raylet's failure subscription and
+  // permanently poisons the id. Without this reconciliation the id can never
+  // run again until the raylet restarts. Only real (driver/task) workers are
+  // affected; I/O workers are excluded because the cache is only consulted for
+  // lease callers.
+  if (worker_type == rpc::WorkerType::DRIVER ||
+      worker_type == rpc::WorkerType::WORKER) {
+    if (failed_workers_cache_.contains(worker_id)) {
+      failed_workers_cache_.erase(worker_id);
+      RAY_LOG(INFO).WithField(worker_id)
+          << "Removed worker from failed-workers cache because it re-registered.";
+    }
+  }
+
   if (worker_type == rpc::WorkerType::WORKER ||
       worker_type == rpc::WorkerType::SPILL_WORKER ||
       worker_type == rpc::WorkerType::RESTORE_WORKER) {
