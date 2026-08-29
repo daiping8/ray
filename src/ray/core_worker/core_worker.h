@@ -438,6 +438,27 @@ class CoreWorker : public std::enable_shared_from_this<CoreWorker> {
     AddLocalReference(object_id, CurrentCallSite());
   }
 
+  /// Register ownership of an object created in this worker with a
+  /// caller-supplied ObjectID. The language frontend (e.g. Go) generates and
+  /// knows the ObjectID before calling Put, so it must register ownership
+  /// explicitly; the three-argument CoreWorker::Put overload does this
+  /// automatically when it generates the ID.
+  void AddOwnedObject(
+      const ObjectID &object_id,
+      const std::vector<ObjectID> &contained_ids,
+      const int64_t object_size,
+      bool add_local_ref = false,
+      const std::optional<NodeID> &pinned_at_node_id = std::optional<NodeID>()) {
+    reference_counter_->AddOwnedObject(object_id,
+                                       contained_ids,
+                                       rpc_address_,
+                                       CurrentCallSite(),
+                                       object_size,
+                                       LineageReconstructionEligibility::INELIGIBLE_PUT,
+                                       add_local_ref,
+                                       pinned_at_node_id);
+  }
+
   /// Decrease the reference count for this object ID. Should be called
   /// by the language frontend when a reference is destroyed.
   ///

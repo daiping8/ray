@@ -62,7 +62,13 @@ void ObjectStoreOperations::PutWithID(const ray::ObjectID& object_id,
   auto& core_worker = GetCoreWorker();
 
   std::vector<ray::ObjectID> contained_object_ids;
-  core_worker.Put(*object, contained_object_ids, object_id);
+  // Register ownership for the caller-supplied ID before putting, mirroring
+  // CoreWorker::Put's three-argument overload (which registers ownership when
+  // it generates the ID). Without an owned entry in the reference counter, a
+  // subsequent Get cannot resolve an owner and the fetch never completes.
+  core_worker.AddOwnedObject(object_id, contained_object_ids, object->GetSize(),
+                             /*add_local_ref=*/true);
+  core_worker.Put(*object, contained_object_ids, object_id, /*pin_object=*/true);
 }
 
 std::vector<std::shared_ptr<ray::RayObject>> ObjectStoreOperations::Get(
