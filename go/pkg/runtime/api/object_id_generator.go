@@ -59,7 +59,8 @@ func (g *ObjectIDGenerator) GenerateObjectID() (*ids.ObjectID, error) {
 	}
 
 	// Use counter to ensure unique ObjectID within a task
-	index := int(atomic.AddUint64(&g.counter, 1) - 1)
+	// Start at 1: index 0 is reserved, ObjectIDFromIndex rejects indices < 1.
+	index := int(atomic.AddUint64(&g.counter, 1))
 	objectID := ids.ObjectIDFromIndex(taskID, ids.ObjectIDIndexType(index))
 
 	return &objectID, nil

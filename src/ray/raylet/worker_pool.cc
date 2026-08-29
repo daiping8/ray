@@ -276,7 +276,8 @@ WorkerPool::BuildProcessCommandArgs(const Language &language,
 
   // Append Ray-defined per-job options here
   std::string code_search_path;
-  if (language == Language::JAVA || language == Language::CPP) {
+  if (language == Language::JAVA || language == Language::CPP ||
+      language == Language::GO) {
     if (job_config) {
       std::string code_search_path_str;
       for (int i = 0; i < job_config->code_search_path_size(); i++) {
@@ -292,6 +293,9 @@ WorkerPool::BuildProcessCommandArgs(const Language &language,
           code_search_path_str = "-Dray.job.code-search-path=" + code_search_path_str;
         } else if (language == Language::CPP) {
           code_search_path_str = "--ray_code_search_path=" + code_search_path_str;
+        } else if (language == Language::GO) {
+          // Go uses --code-search-path flag (defined in go/cmd/raygo/default_worker/default_worker.go)
+          code_search_path_str = "--code-search-path=" + code_search_path_str;
         } else {
           RAY_LOG(FATAL) << "Unknown language " << Language_Name(language);
         }
@@ -371,6 +375,12 @@ WorkerPool::BuildProcessCommandArgs(const Language &language,
     worker_command_args.push_back("--ray_worker_id=" + worker_id.Hex());
     worker_command_args.push_back("--ray_runtime_env_hash=" +
                                   std::to_string(runtime_env_hash));
+  } else if (language == Language::GO) {
+    // Note: the startup-token argument is added together with the Go worker
+    // entrypoint migration; the startup token counter does not exist in this
+    // codebase's worker pool.
+    worker_command_args.push_back("--runtime-env-hash=" +
+                                  std::to_string(runtime_env_hash));
   }
 
   if (serialized_runtime_env_context != "{}" && !serialized_runtime_env_context.empty()) {
@@ -447,6 +457,12 @@ WorkerPool::BuildProcessCommandArgs(const Language &language,
   // Refer this issue for more details: https://github.com/ray-project/ray/issues/15061
   if (language == Language::PYTHON) {
     env.insert({"SPT_NOENV", "1"});
+  }
+
+  // Set RAY_CODE_SEARCH_PATH environment variable for Go worker.
+  // Go worker reads JobConfig from environment variables via buildJobConfigFromEnv().
+  if (language == Language::GO && !code_search_path.empty()) {
+    env.emplace("RAY_CODE_SEARCH_PATH", code_search_path);
   }
 
   if (RayConfig::instance().support_fork()) {

@@ -25,9 +25,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/ray-project/ray/go/internal/gcs/native"
 	"github.com/ray-project/ray/go/internal/runtime/base"
@@ -674,6 +676,16 @@ type NativeRuntimeFactory struct{}
 
 // Initialize initializes the native runtime and returns a handle.
 func (f *NativeRuntimeFactory) Initialize(opts *options.InitializeOptions) (contract.RuntimeHandle, error) {
+	// Driver bootstrap: resolve the local node's connection info from GCS when
+	// the caller did not supply it (e.g. an in-process driver launched outside
+	// of `ray job submit`). The C++ CoreWorker reads the raylet port from these
+	// options before it can talk to the raylet, so they cannot be left at zero.
+	if opts != nil && opts.WorkerType == options.WorkerTypeDriver {
+		if err := bootstrapDriverOptions(opts); err != nil {
+			return nil, err
+		}
+	}
+
 	// Convert API options to internal options
 	baseOpts, err := convertToBaseOptions(opts)
 	if err != nil {
@@ -747,6 +759,88 @@ func convertToBaseOptions(apiOpts *options.InitializeOptions) (base.InitializeOp
 			RuntimeEnvHash: int(apiOpts.Runtime.RuntimeEnvHash),
 		},
 	}, nil
+}
+
+// bootstrapDriverOptions fills in the local node's connection info from GCS
+// when an in-process (cluster-mode) driver did not supply it explicitly.
+// Ray Python resolves this in `node.py` by querying the GCS node table; the
+// C++ CoreWorker needs the node_manager_port to connect to the raylet, so the
+// values cannot remain zero.
+//
+// Only the fields that are still zero are overwritten; values the caller set
+// are preserved.
+func bootstrapDriverOptions(opts *options.InitializeOptions) error {
+	// Short-circuit if the caller already provided the connection info.
+	if opts.Network.NodeManagerPort != 0 && opts.Runtime.RayletSocket != "" &&
+		opts.Runtime.StoreSocket != "" {
+		return nil
+	}
+
+	nodeIP := opts.Network.NodeIPAddress
+	if nodeIP == "" {
+		nodeIP = detectLocalIP()
+	}
+
+	// Connect to GCS and ask for the node this driver should connect to.
+	client, err := native.ConnectClient(gcs.ClientOptions{
+		Address:   opts.Network.GcsAddress,
+		ClusterID: ids.NilClusterID(),
+		TimeoutMs: 10000,
+	})
+	if err != nil {
+		return fmt.Errorf("bootstrapDriverOptions: connect to GCS failed: %w", err)
+	}
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	node, err := client.GetNodeToConnect(ctx, nodeIP)
+	if err != nil {
+		return fmt.Errorf("bootstrapDriverOptions: get node info failed: %w", err)
+	}
+	if node == nil {
+		return fmt.Errorf("bootstrapDriverOptions: GCS returned no node info for ip %s", nodeIP)
+	}
+
+	if opts.Network.NodeManagerPort == 0 {
+		opts.Network.NodeManagerPort = node.GetNodeManagerPort()
+	}
+	if opts.Runtime.RayletSocket == "" {
+		opts.Runtime.RayletSocket = node.GetRayletSocketName()
+	}
+	if opts.Runtime.StoreSocket == "" {
+		opts.Runtime.StoreSocket = node.GetObjectStoreSocketName()
+	}
+	if opts.Network.NodeIPAddress == "" {
+		// Prefer the address the node manager advertises for connecting back.
+		if addr := node.GetNodeManagerAddress(); addr != "" {
+			opts.Network.NodeIPAddress = addr
+		} else {
+			opts.Network.NodeIPAddress = nodeIP
+		}
+	}
+
+	log.Log.Info("driver bootstrap resolved node info from GCS",
+		"node_id", node.GetNodeId(), "ip", opts.Network.NodeIPAddress, "port", opts.Network.NodeManagerPort)
+	return nil
+}
+
+// detectLocalIP returns the first non-loopback IPv4 address on this host,
+// falling back to IPv4 loopback if none is found.
+func detectLocalIP() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "127.0.0.1"
+	}
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipv4 := ipnet.IP.To4(); ipv4 != nil {
+				return ipv4.String()
+			}
+		}
+	}
+	return "127.0.0.1"
 }
 
 // runtimeFactoryRegistered tracks whether the runtime factory has been registered.

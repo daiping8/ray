@@ -41,7 +41,7 @@ const (
 	LeaseIDUniqueBytesSize          = 4
 )
 
-const MaxObjectIndex int64 = (1 << ObjectIDIndexSize) - 1
+const MaxObjectIndex int64 = (1 << (ObjectIDIndexSize * 8)) - 1
 
 func idToHex(data []byte) string {
 	return hex.EncodeToString(data)
