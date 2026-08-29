@@ -60,6 +60,7 @@ extern "C" CNativeRuntime* CNativeRuntime_Initialize(
         options.gcs_address = CNativeCommon_ConvertToString(opts->gcs_address);
         options.cluster_id = CNativeCommon_ConvertToString(opts->cluster_id_hex);
         options.log_dir = CNativeCommon_ConvertToString(opts->log_dir);
+        options.worker_id_hex = CNativeCommon_ConvertToString(opts->worker_id_hex);
 
         // Go passes JobConfig as base64-encoded protobuf.
         // Decode it to raw protobuf bytes so node_manager.cc can parse it directly.

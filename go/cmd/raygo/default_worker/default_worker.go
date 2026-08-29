@@ -114,6 +114,7 @@ func init() {
 
 	// Worker authentication and lifecycle flags
 	WorkerCmd.Flags().Int(worker.StartupToken, -1, "The startup token assigned to this worker process by the raylet (--startup-token).")
+	WorkerCmd.Flags().String(worker.WorkerIDFlag, "", "The worker ID assigned to this worker process by the raylet (--worker-id).")
 	WorkerCmd.Flags().String(worker.DefaultActorLifetime, "", "The default actor lifetime type, `detached` or `non_detached` (--default-actor-lifetime).")
 
 	// Runtime environment flags
@@ -185,6 +186,7 @@ func runWorker(cmd *cobra.Command, args []string) error {
 			LogDir:         config.LogsDir,
 			StartupToken:   int32(config.StartupToken),
 			RuntimeEnvHash: int32(config.RuntimeEnvHash),
+			WorkerIDHex:    config.WorkerIDHex,
 		},
 		worker.WithCodeSearchPath(config.CodeSearchPath),
 	)

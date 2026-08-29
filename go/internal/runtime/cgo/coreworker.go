@@ -106,6 +106,10 @@ func toCNativeRuntimeInitializeOptions(opts base.InitializeOptions) (*C.CNativeR
 	cClusterID, freeClusterID := ToCString(clusterIDHex)
 	frees = append(frees, freeClusterID)
 
+	// Worker ID (hex) assigned by the raylet (worker mode only).
+	cWorkerID, freeWorkerID := ToCString(opts.Runtime.WorkerIDHex)
+	frees = append(frees, freeWorkerID)
+
 	// Build C struct.
 	cOpts := &C.CNativeRuntimeInitializeOptions{
 		worker_mode:           C.int(opts.WorkerType),
@@ -119,6 +123,7 @@ func toCNativeRuntimeInitializeOptions(opts base.InitializeOptions) (*C.CNativeR
 		cluster_id_hex:        cClusterID,
 		log_dir:               logDir,
 		job_config_serialized: cJobConfig,
+		worker_id_hex:         cWorkerID,
 		startup_token:         C.int(opts.Runtime.StartupToken),
 		runtime_env_hash:      C.int(opts.Runtime.RuntimeEnvHash),
 		enable_logging:        C.bool(true),

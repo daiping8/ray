@@ -94,6 +94,7 @@ type RuntimeOptions struct {
 	LogDir         string // Log directory
 	StartupToken   int32  // Worker startup token
 	RuntimeEnvHash int32  // Runtime environment hash
+	WorkerIDHex    string // Worker ID (hex) assigned by the raylet; empty for drivers
 }
 
 // NetworkOptions contains network-related configuration options.

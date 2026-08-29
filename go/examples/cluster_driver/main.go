@@ -16,12 +16,13 @@ limitations under the License.
 
 // cluster_driver is a minimal driver executable that connects to a real local
 // Ray cluster through the CGO CoreWorker bridge. It registers the native
-// (cluster-mode) runtime initializer, initializes a driver CoreWorker, and
-// performs an in-process Put/Get round-trip against the object store.
+// (cluster-mode) runtime initializer, initializes a driver CoreWorker, performs
+// an in-process Put/Get round-trip, and submits a remote task that must
+// actually execute on a GO worker.
 //
-// Worker task execution is not in scope for this example (the Go worker
-// entrypoint is not yet migrated); the Remote submit is only asserted to not
-// panic inside the driver.
+// The remote task function lives in the shared userfuncs package (not in this
+// main package), and the job code_search_path points at the compiled
+// userfuncs.so plugin so worker processes can resolve the same function symbol.
 package main
 
 import (
@@ -29,11 +30,10 @@ import (
 	"os"
 
 	_ "github.com/ray-project/ray/go/internal/runtime/native"
+	"github.com/ray-project/ray/go/examples/userfuncs"
 	"github.com/ray-project/ray/go/pkg/options"
 	"github.com/ray-project/ray/go/pkg/runtime/api"
 )
-
-func add(a int, b int) int { return a + b }
 
 func main() {
 	gcsAddress := os.Getenv("RAY_ADDRESS")
@@ -44,18 +44,34 @@ func main() {
 	if jobID == "" {
 		jobID = "01000000"
 	}
+	funcSo := os.Getenv("RAY_GO_USERFUNC_SO")
+	if funcSo == "" {
+		funcSo = "bazel-bin/go/examples/userfuncs/plugin/userfuncs.so"
+	}
+
+	// Register the user functions in the driver (done by importing userfuncs),
+	// and build a JobConfig that tells worker processes where to load the same
+	// .so so the function is available for execution on the worker side.
+	jobOpts, err := options.NewJobConfigBuilder().
+		WithCodeSearchPath(funcSo).
+		BuildToJobOptions()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "JOB CONFIG BUILD FAILED: %v\n", err)
+		os.Exit(1)
+	}
+	jobOpts.JobID = jobID
 
 	initOpts := &options.InitializeOptions{
 		WorkerType: options.WorkerTypeDriver,
 		Network:    options.NetworkOptions{GcsAddress: gcsAddress},
-		Job:        options.JobOptions{JobID: jobID},
+		Job:        jobOpts,
 	}
 	if err := api.InitWithOptions(initOpts); err != nil {
 		fmt.Fprintf(os.Stderr, "INIT FAILED: %v\n", err)
 		os.Exit(1)
 	}
 	defer api.Instance().Shutdown()
-	fmt.Printf("INIT OK: native/CoreWorker driver initialized (gcs=%s)\n", gcsAddress)
+	fmt.Printf("INIT OK: native/CoreWorker driver initialized (gcs=%s, funcSo=%s)\n", gcsAddress, funcSo)
 
 	// Put/Get round-trip inside the driver process (no worker required).
 	data := map[string]int{"a": 1, "b": 2, "c": 3}
@@ -73,15 +89,21 @@ func main() {
 	}
 	fmt.Printf("GET OK: %v\n", result)
 
-	// Submit a remote task. The worker runtime is not migrated in this fork,
-	// so execution is expected to not complete; we only assert the submit
-	// action itself does not panic inside the driver.
-	rref, err := api.Instance().Remote(add).Call(1, 2)
+	// Submit a remote task that must actually execute on a GO worker.
+	rref, err := api.Instance().Remote(userfuncs.Add).Call(1, 2)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "REMOTE CALL FAILED (expected boundary): %v\n", err)
+		fmt.Fprintf(os.Stderr, "REMOTE CALL FAILED: %v\n", err)
 	} else {
 		fmt.Printf("REMOTE SUBMIT OK: %v\n", rref.ObjectID())
 	}
+
+	// Verify the remote task actually completed on a real worker.
+	result2, err := api.Instance().Get(rref)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "REMOTE GET FAILED: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("REMOTE GET OK: %v\n", result2)
 
 	fmt.Println("CLUSTER_DRIVER_DONE")
 }

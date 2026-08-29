@@ -303,6 +303,12 @@ void RuntimeOperations::InitializeCoreWorker(
   core_options.metrics_agent_port = options.metrics_agent_port;
   core_options.runtime_env_hash = options.runtime_env_hash;
   core_options.debug_source = options.debug_source;
+  // In worker mode, register with the raylet under the worker ID it assigned
+  // (passed by the raylet via --worker-id). For drivers the ID is derived from
+  // the job ID in CoreWorkerProcessImpl, so leave it unset here.
+  if (!options.worker_id_hex.empty()) {
+    core_options.worker_id = ray::WorkerID::FromHex(options.worker_id_hex);
+  }
   // Pass serialized JobConfig to core_worker
   // This will be used when registering with raylet and starting workers
   core_options.serialized_job_config = options.serialized_job_config;

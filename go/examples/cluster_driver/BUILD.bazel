@@ -20,6 +20,7 @@ go_binary(
     importpath = "github.com/ray-project/ray/go/examples/cluster_driver",
     visibility = ["//visibility:public"],
     deps = [
+        "//go/examples/userfuncs",
         "//go/internal/runtime/native",
         "//go/pkg/options",
         "//go/pkg/runtime/api",

@@ -757,6 +757,7 @@ func convertToBaseOptions(apiOpts *options.InitializeOptions) (base.InitializeOp
 			LogDir:         apiOpts.Runtime.LogDir,
 			StartupToken:   int(apiOpts.Runtime.StartupToken),
 			RuntimeEnvHash: int(apiOpts.Runtime.RuntimeEnvHash),
+			WorkerIDHex:    apiOpts.Runtime.WorkerIDHex,
 		},
 	}, nil
 }

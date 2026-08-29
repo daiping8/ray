@@ -63,6 +63,7 @@ typedef struct {
   const char* cluster_id_hex;         // Cluster ID as hex string (optional, can be empty)
   const char* log_dir;                // Directory for log files
   const char* job_config_serialized;  // Serialized job configuration
+  const char* worker_id_hex;          // Worker ID as hex string (worker mode; empty for driver)
   int startup_token;                  // Startup token for this worker
   int runtime_env_hash;               // Hash of the runtime environment
   bool enable_logging;                // Initialize logging if true

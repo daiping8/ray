@@ -83,6 +83,7 @@ type RuntimeOptions struct {
 	LogDir         string // Log directory
 	StartupToken   int    // Worker startup token
 	RuntimeEnvHash int    // Runtime environment hash
+	WorkerIDHex    string // Worker ID (hex) assigned by the raylet; empty for drivers
 	EnableLogging  bool   // Initialize C++ logging if true (default: true)
 }
 
@@ -124,6 +125,7 @@ func InitializeOptionsFromAPI(opts options.InitializeOptions) (InitializeOptions
 			LogDir:         opts.Runtime.LogDir,
 			StartupToken:   int(opts.Runtime.StartupToken),
 			RuntimeEnvHash: int(opts.Runtime.RuntimeEnvHash),
+			WorkerIDHex:    opts.Runtime.WorkerIDHex,
 			EnableLogging:  true, // Default to true to enable C++ logging
 		},
 	}
@@ -210,6 +212,7 @@ func (o InitializeOptions) ToAPIOptions() options.InitializeOptions {
 			LogDir:         o.Runtime.LogDir,
 			StartupToken:   int32(o.Runtime.StartupToken),
 			RuntimeEnvHash: int32(o.Runtime.RuntimeEnvHash),
+			WorkerIDHex:    o.Runtime.WorkerIDHex,
 		},
 	}
 }

@@ -48,6 +48,9 @@ struct RuntimeInitializeOptions {
   std::string debug_source;
   ray::JobID job_id;
   std::string cluster_id;
+  // Worker ID as hex string. Set for worker-mode processes so the worker
+  // registers with the raylet under the worker ID the raylet assigned.
+  std::string worker_id_hex;
 };
 
 // Business logic layer for runtime lifecycle management

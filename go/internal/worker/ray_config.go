@@ -59,6 +59,7 @@ const (
 
 	// Worker authentication and lifecycle flags
 	StartupToken         = "startup-token"
+	WorkerIDFlag         = "worker-id"
 	DefaultActorLifetime = "default-actor-lifetime"
 
 	// Runtime environment flags
@@ -166,6 +167,11 @@ type RayConfig struct {
 
 	// StartupToken is used for worker authentication.
 	StartupToken int
+
+	// WorkerIDHex is the worker ID (hex) assigned by the raylet. Empty for
+	// driver processes; required for worker processes so the worker registers
+	// back with the raylet under the ID the raylet assigned.
+	WorkerIDHex string
 
 	// RayNamespace is the job namespace.
 	RayNamespace string
@@ -401,6 +407,8 @@ func parseNodeConfig(cmd *cobra.Command, config *RayConfig) error {
 		return fmt.Errorf("failed to get flag '%s': %v", StartupToken, err)
 	}
 	config.StartupToken = startupToken
+
+	config.WorkerIDHex, _ = cmd.Flags().GetString(WorkerIDFlag)
 
 	lifetimeStr, err := cmd.Flags().GetString(DefaultActorLifetime)
 	if err != nil {
