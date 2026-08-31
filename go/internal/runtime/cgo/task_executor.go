@@ -356,8 +356,7 @@ func GoExecuteTask(
 			// makes CoreWorker::ExecuteTask CHECK-fail and crash the worker).
 			cResult = convertGoResultToC(nil, panicErr, int(numReturns))
 			if cResult != nil {
-				taskExecutorLogger.Error(fmt.Errorf("returning panic error result"),
-					"returning panic error result", "count", cResult.count)
+				taskExecutorLogger.Info("returning panic error result", "count", cResult.count)
 			}
 		}
 	}()

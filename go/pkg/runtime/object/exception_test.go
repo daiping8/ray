@@ -23,20 +23,20 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
-// TestIsErrorObject tests metadata-based error object detection per the C++ RayObject::IsException
+// TestParseErrorType tests metadata-based error object detection per the C++ RayObject::IsException
 // convention.
-func TestIsErrorObject(t *testing.T) {
+func TestParseErrorType(t *testing.T) {
 	tests := []struct {
 		metadata    []byte
 		wantType    int
 		wantIsError bool
 	}{
-		{[]byte("0"), ErrorTypeWorkerDied, true},
-		{[]byte("1"), ErrorTypeActorDied, true},
-		{[]byte("3"), ErrorTypeTaskExecutionException, true},
-		{[]byte("33"), ErrorTypeWorkerStartupFailed, true},
+		{[]byte("0"), RpcErrorTypeWorkerDied, true},
+		{[]byte("1"), RpcErrorTypeActorDied, true},
+		{[]byte("3"), RpcErrorTypeTaskExecutionException, true},
+		{[]byte("33"), RpcErrorTypeWorkerStartupFailed, true},
 		{[]byte("34"), 34, true},
-		// No rpc::ErrorType value uses number 2.
+		// No rpc::ErrorType value uses number 2 in this tree's common.proto.
 		{[]byte("2"), 0, false},
 		// Numbers outside the enum range are not error objects.
 		{[]byte("35"), 0, false},
@@ -56,12 +56,12 @@ func TestIsErrorObject(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		gotType, gotIsError := IsErrorObject(tc.metadata)
+		gotType, gotIsError := ParseErrorType(tc.metadata)
 		if gotIsError != tc.wantIsError {
-			t.Errorf("IsErrorObject(%q) isError = %v, want %v", tc.metadata, gotIsError, tc.wantIsError)
+			t.Errorf("ParseErrorType(%q) isError = %v, want %v", tc.metadata, gotIsError, tc.wantIsError)
 		}
 		if gotIsError && gotType != tc.wantType {
-			t.Errorf("IsErrorObject(%q) type = %d, want %d", tc.metadata, gotType, tc.wantType)
+			t.Errorf("ParseErrorType(%q) type = %d, want %d", tc.metadata, gotType, tc.wantType)
 		}
 	}
 }
@@ -75,8 +75,8 @@ func TestErrorObjectFromNative_NumericMetadata(t *testing.T) {
 	if !ok {
 		t.Fatal("expected WORKER_STARTUP_FAILED to be detected as an error object")
 	}
-	if exc.ErrorCode() != ErrorTypeWorkerStartupFailed {
-		t.Errorf("error code = %d, want %d", exc.ErrorCode(), ErrorTypeWorkerStartupFailed)
+	if exc.ErrorCode() != RpcErrorTypeWorkerStartupFailed {
+		t.Errorf("error code = %d, want %d", exc.ErrorCode(), RpcErrorTypeWorkerStartupFailed)
 	}
 	if !strings.Contains(exc.Error(), "WORKER_STARTUP_FAILED") {
 		t.Errorf("error message should mention WORKER_STARTUP_FAILED, got: %s", exc.Error())
@@ -117,6 +117,21 @@ func TestErrorObjectFromNative_NumericMetadata(t *testing.T) {
 		t.Errorf("error code = %d, want %d", exc.ErrorCode(), ErrorCodeTaskExecutionException)
 	}
 	if !strings.Contains(exc.Error(), "plugin version mismatch") {
+		t.Errorf("error message should carry the RayErrorInfo message, got: %s", exc.Error())
+	}
+
+	// ACTOR_DIED (1) with a serialized RayErrorInfo message: the message is surfaced while
+	// ErrorCode() stays the Go ErrorCodeActorDied constant, consistent with the no-message path.
+	data = buildErrorInfoData("actor died: oom")
+	nativeObj = &NativeRayObject{Data: data, Metadata: []byte("1")}
+	exc, ok = ErrorObjectFromNative(nativeObj)
+	if !ok {
+		t.Fatal("expected ACTOR_DIED with message to be detected as an error object")
+	}
+	if exc.ErrorCode() != ErrorCodeActorDied {
+		t.Errorf("error code = %d, want %d", exc.ErrorCode(), ErrorCodeActorDied)
+	}
+	if !strings.Contains(exc.Error(), "actor died: oom") {
 		t.Errorf("error message should carry the RayErrorInfo message, got: %s", exc.Error())
 	}
 }

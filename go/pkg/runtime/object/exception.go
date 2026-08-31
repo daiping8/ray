@@ -20,7 +20,9 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/ray-project/ray/go/internal/errors"
 	"github.com/vmihailenco/msgpack/v5"
+	"google.golang.org/protobuf/encoding/protowire"
 )
 
 // exceptionFactory is a function type for creating exceptions from raw data.
@@ -33,12 +35,12 @@ var exceptionRegistry = map[int]exceptionFactory{
 	ErrorCodeWorkerDied: simpleExceptionFactory(NewRayWorkerException),
 
 	// ID-based exceptions - all use the same unified RayIDException type
-	ErrorCodeActorDied:             idExceptionFactory(NewRayIDExceptionActorDied),
-	ErrorCodeActorUnavailable:      idExceptionFactory(NewRayIDExceptionActorUnavailable),
+	ErrorCodeActorDied:               idExceptionFactory(NewRayIDExceptionActorDied),
+	ErrorCodeActorUnavailable:        idExceptionFactory(NewRayIDExceptionActorUnavailable),
 	ErrorCodeObjectUnreconstructable: idExceptionFactory(NewRayIDExceptionUnreconstructable),
-	ErrorCodeObjectLost:            idExceptionFactory(NewRayIDExceptionLost),
-	ErrorCodeOwnerDied:             idExceptionFactory(NewRayIDExceptionOwnerDied),
-	ErrorCodeObjectDeleted:         idExceptionFactory(NewRayIDExceptionDeleted),
+	ErrorCodeObjectLost:              idExceptionFactory(NewRayIDExceptionLost),
+	ErrorCodeOwnerDied:               idExceptionFactory(NewRayIDExceptionOwnerDied),
+	ErrorCodeObjectDeleted:           idExceptionFactory(NewRayIDExceptionDeleted),
 
 	// Complex exceptions with multiple fields
 	ErrorCodeTaskExecutionException: func(data map[string]interface{}) RayException {
@@ -403,12 +405,12 @@ func errorTypeName(errorType int) string {
 	return fmt.Sprintf("UNKNOWN_%d", errorType)
 }
 
-// IsErrorObject reports whether the object metadata encodes a Ray error type, following the C++
+// ParseErrorType parses the object metadata as a Ray error type, following the C++
 // RayObject::IsException convention (src/ray/common/ray_object.cc): a metadata of at most 2 bytes
 // whose content is the canonical decimal string of an rpc::ErrorType number. Metadata longer than
-// 2 bytes (e.g. "PYTHON") is never an error. It returns the parsed error type number when the
-// metadata encodes one.
-func IsErrorObject(metadata []byte) (int, bool) {
+// 2 bytes (e.g. "PYTHON") is never an error. It returns the parsed error type number and whether
+// the metadata encodes one.
+func ParseErrorType(metadata []byte) (int, bool) {
 	// For performance, assume metadata of >2 chars (e.g. "PYTHON") is not an error.
 	if len(metadata) == 0 || len(metadata) > 2 {
 		return 0, false
@@ -431,23 +433,22 @@ func IsErrorObject(metadata []byte) (int, bool) {
 
 // goWorkerErrorMetadata is the metadata value the Go worker attaches to task execution error
 // objects (see convertGoResultToC in go/internal/runtime/cgo/task_executor.go). Its data payload
-// is a JSON object with an error_type/error_message (see go/internal/errors.SerializedRayError).
+// is a JSON object serialized from go/internal/errors.SerializedRayError.
 const goWorkerErrorMetadata = `{"type":"error"}`
 
-// goWorkerErrorPayload mirrors the JSON error payload produced by the Go worker's
-// convertGoResultToC (the SerializedRayError fields the driver needs to build a readable error).
-type goWorkerErrorPayload struct {
-	ErrorType    string `json:"error_type"`
-	ErrorMessage string `json:"error_message"`
-	CauseMessage string `json:"cause_message"`
-	StackTrace   string `json:"stack_trace"`
-}
+// Precomputed byte forms of the metadata values compared in ErrorObjectFromNative. Comparing
+// bytes avoids a []byte->string conversion (and allocation) on every Get.
+var goWorkerErrorMetadataBytes = []byte(goWorkerErrorMetadata)
+var metadataTypeTaskExecutionExceptionBytes = []byte(MetadataTypeTaskExecutionException)
 
 // taskExceptionFromGoWorkerError builds a readable task execution exception from a Go worker
-// error object. When the JSON payload cannot be parsed it still returns a readable exception
-// carrying the raw data, so the driver never sees a silent/generic deserialization failure.
+// error object. The worker serializes the error payload via go/internal/errors.SerializedRayError
+// (see convertGoResultToC in go/internal/runtime/cgo/task_executor.go), so the same type is reused
+// here to avoid maintaining a second copy of the wire format. When the JSON payload cannot be
+// parsed it still returns a readable exception carrying the raw data, so the driver never sees a
+// silent/generic deserialization failure.
 func taskExceptionFromGoWorkerError(data []byte) RayException {
-	var payload goWorkerErrorPayload
+	var payload errors.SerializedRayError
 	message := ""
 	stackTrace := ""
 	if err := json.Unmarshal(data, &payload); err == nil {
@@ -468,16 +469,21 @@ func taskExceptionFromGoWorkerError(data []byte) RayException {
 // errorTypeFactories maps the C++ rpc::ErrorType numbers (used as error-object metadata) to
 // exception factories for the error types that have a dedicated Go exception class.
 var errorTypeFactories = map[int]func(*NativeRayObject) RayException{
-	ErrorTypeWorkerDied: func(*NativeRayObject) RayException {
+	RpcErrorTypeWorkerDied: func(*NativeRayObject) RayException {
 		return NewRayWorkerException()
 	},
-	ErrorTypeActorDied: func(nativeObj *NativeRayObject) RayException {
+	RpcErrorTypeActorDied: func(nativeObj *NativeRayObject) RayException {
 		if message := extractErrorInfoMessage(nativeObj.Data); message != "" {
-			return newRayErrorTypeException(ErrorTypeActorDied, "ACTOR_DIED", message)
+			// Both branches report the same ErrorCode(): keep the Go ErrorCodeActorDied constant
+			// (2), not the raw rpc::ErrorType number (1), so callers switching on ErrorCode() see
+			// a single value for ACTOR_DIED.
+			exc := NewRayIDExceptionActorDied("")
+			exc.message = message
+			return exc
 		}
 		return NewRayIDExceptionActorDied("")
 	},
-	ErrorTypeTaskExecutionException: func(nativeObj *NativeRayObject) RayException {
+	RpcErrorTypeTaskExecutionException: func(nativeObj *NativeRayObject) RayException {
 		message := extractErrorInfoMessage(nativeObj.Data)
 		if message == "" {
 			message = "task execution failed"
@@ -506,17 +512,17 @@ func ErrorObjectFromNative(nativeObj *NativeRayObject) (RayException, bool) {
 	}
 	// The Go worker encodes task execution errors with a {"type":"error"} metadata and a JSON
 	// error payload (see convertGoResultToC in go/internal/runtime/cgo/task_executor.go).
-	if string(nativeObj.Metadata) == goWorkerErrorMetadata {
+	if bytes.Equal(nativeObj.Metadata, goWorkerErrorMetadataBytes) {
 		return taskExceptionFromGoWorkerError(nativeObj.Data), true
 	}
 	// Go local mode encodes task execution exceptions with a string metadata and msgpack data.
-	if string(nativeObj.Metadata) == MetadataTypeTaskExecutionException {
+	if bytes.Equal(nativeObj.Metadata, metadataTypeTaskExecutionExceptionBytes) {
 		exc, err := (&RayExceptionSerializer{}).FromBytes(nativeObj.Data)
 		if err == nil && exc != nil {
 			return exc, true
 		}
 	}
-	errorType, ok := IsErrorObject(nativeObj.Metadata)
+	errorType, ok := ParseErrorType(nativeObj.Metadata)
 	if !ok {
 		return nil, false
 	}
@@ -566,56 +572,27 @@ func extractErrorInfoMessage(data []byte) string {
 
 // extractProtoStringField scans a protobuf wire-format message for the given field number and
 // returns its value when the field is a length-delimited string. It is a best-effort parser used
-// only to surface readable error messages from a serialized rpc::RayErrorInfo.
+// only to surface readable error messages from a serialized rpc::RayErrorInfo. It uses
+// google.golang.org/protobuf/encoding/protowire for bounds-checked wire-format decoding.
 func extractProtoStringField(data []byte, fieldNum int) string {
-	for i := 0; i < len(data); {
-		tag, n := decodeProtoVarint(data[i:])
-		if n == 0 {
+	for len(data) > 0 {
+		num, typ, n := protowire.ConsumeTag(data)
+		if n < 0 {
 			return ""
 		}
-		i += n
-		if int(tag>>3) == fieldNum && int(tag&0x7) == 2 {
-			length, m := decodeProtoVarint(data[i:])
-			if m == 0 || length > uint64(len(data)-i-m) {
+		data = data[n:]
+		if int(num) == fieldNum && typ == protowire.BytesType {
+			value, m := protowire.ConsumeBytes(data)
+			if m < 0 {
 				return ""
 			}
-			return string(data[i+m : i+m+int(length)])
+			return string(value)
 		}
-		var skip int
-		switch int(tag & 0x7) {
-		case 0: // varint
-			_, skip = decodeProtoVarint(data[i:])
-		case 1: // 64-bit
-			skip = 8
-		case 2: // length-delimited
-			length, m := decodeProtoVarint(data[i:])
-			if m == 0 || length > uint64(len(data)-i-m) {
-				return ""
-			}
-			skip = m + int(length)
-		case 5: // 32-bit
-			skip = 4
-		default:
+		if n := protowire.ConsumeFieldValue(num, typ, data); n < 0 {
 			return ""
+		} else {
+			data = data[n:]
 		}
-		if skip <= 0 || i+skip > len(data) {
-			return ""
-		}
-		i += skip
 	}
 	return ""
-}
-
-// decodeProtoVarint decodes a protobuf varint from data, returning the value and the number of
-// bytes consumed (0 on error).
-func decodeProtoVarint(data []byte) (uint64, int) {
-	var value uint64
-	for i := 0; i < len(data) && i < 10; i++ {
-		b := data[i]
-		value |= uint64(b&0x7f) << (7 * i)
-		if b&0x80 == 0 {
-			return value, i + 1
-		}
-	}
-	return 0, 0
 }

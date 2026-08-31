@@ -795,12 +795,8 @@ static bool NeedToEagerInstallRuntimeEnv(const rpc::JobConfig &job_config) {
 
 void WorkerPool::HandleJobStarted(const JobID &job_id, const rpc::JobConfig &job_config) {
   if (all_jobs_.find(job_id) != all_jobs_.end()) {
-    // A job id is being reused across independent runs (e.g. a driver that is
-    // run repeatedly with the same RAY_JOB_ID on a persistent cluster). The id
-    // was marked finished when the previous run ended, which would force-exit
-    // any newly spawned workers for this (now active again) job. Remove the
-    // finished marker so the new run's workers are not killed before they can
-    // be assigned tasks.
+    // A reused job id (e.g. a driver rerun with the same RAY_JOB_ID) was marked
+    // finished; clear the marker so newly spawned workers are not force-exited.
     if (finished_jobs_.contains(job_id)) {
       RAY_LOG(INFO) << "Job " << job_id
                     << " was previously finished but is starting again; removing it "

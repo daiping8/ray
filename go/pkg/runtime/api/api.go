@@ -154,7 +154,7 @@ func (o *ObjectRef[T]) GetWithTimeout(timeoutMs int64) (T, error) {
 	// object does not carry a T-typed payload.
 	if nativeObjects[0] == nil {
 		var zero T
-		return zero, fmt.Errorf("native object is nil")
+		return zero, fmt.Errorf("native object for object %s is nil", objectIDCopy.Hex())
 	}
 	if exc, ok := object.ErrorObjectFromNative(nativeObjects[0]); ok {
 		var zero T

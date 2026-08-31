@@ -213,19 +213,20 @@ const (
 	ErrorCodeTaskExecutionException = 8
 )
 
-// Error type numbers for the rpc::ErrorType values that have a dedicated Go exception class.
-// These are the numbers used as object metadata for error objects, matching the C++ enum
-// rpc::ErrorType in src/ray/protobuf/common.proto (see C++ RayObject::IsException).
-// Note that these differ from the ErrorCode* constants above: ErrorCode* identifies Go
-// exceptions inside the msgpack ExceptionData payload, while ErrorType* is the metadata
-// value written by the C++ core worker.
+// RpcErrorType* are the rpc::ErrorType numbers used as error-object metadata, matching the C++
+// enum rpc::ErrorType in src/ray/protobuf/common.proto (see C++ RayObject::IsException). They
+// identify the error kind carried by an error object's metadata and differ from the ErrorCode*
+// constants above: ErrorCode* identifies Go exceptions inside the msgpack ExceptionData payload,
+// while RpcErrorType* is the metadata value written by the C++ core worker. Only the values with
+// a dedicated Go exception class have a factory in errorTypeFactories (see exception.go); the
+// rest (e.g. WORKER_STARTUP_FAILED) are surfaced through newRayErrorTypeException.
 const (
-	// ErrorTypeWorkerDied indicates the worker died while executing the task.
-	ErrorTypeWorkerDied = 0
-	// ErrorTypeActorDied indicates the actor died while executing the task.
-	ErrorTypeActorDied = 1
-	// ErrorTypeTaskExecutionException indicates the task failed due to user code failure.
-	ErrorTypeTaskExecutionException = 3
-	// ErrorTypeWorkerStartupFailed indicates the worker failed to start after multiple retries.
-	ErrorTypeWorkerStartupFailed = 33
+	// RpcErrorTypeWorkerDied indicates the worker died while executing the task.
+	RpcErrorTypeWorkerDied = 0
+	// RpcErrorTypeActorDied indicates the actor died while executing the task.
+	RpcErrorTypeActorDied = 1
+	// RpcErrorTypeTaskExecutionException indicates the task failed due to user code failure.
+	RpcErrorTypeTaskExecutionException = 3
+	// RpcErrorTypeWorkerStartupFailed indicates the worker failed to start after multiple retries.
+	RpcErrorTypeWorkerStartupFailed = 33
 )
