@@ -72,6 +72,19 @@ ray_cc_test(
     ],
 )
 
+# gcs_client_publisher 单元测试 - cover the retained log-batch publish path
+# error boundaries (no live GCS cluster required)
+ray_cc_test(
+    name = "gcs_client_publisher_test",
+    size = "small",
+    srcs = ["gcs_client_publisher_test.cc"],
+    deps = [
+        ":gcs_client_bridge",
+        ":gcs_memory",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 # gcs_memory 单元测试 - 只依赖 gcs_memory 库（无 gRPC 依赖）
 ray_cc_test(
     name = "gcs_memory_test",
