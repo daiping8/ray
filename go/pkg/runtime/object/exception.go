@@ -429,6 +429,42 @@ func IsErrorObject(metadata []byte) (int, bool) {
 	return errorType, true
 }
 
+// goWorkerErrorMetadata is the metadata value the Go worker attaches to task execution error
+// objects (see convertGoResultToC in go/internal/runtime/cgo/task_executor.go). Its data payload
+// is a JSON object with an error_type/error_message (see go/internal/errors.SerializedRayError).
+const goWorkerErrorMetadata = `{"type":"error"}`
+
+// goWorkerErrorPayload mirrors the JSON error payload produced by the Go worker's
+// convertGoResultToC (the SerializedRayError fields the driver needs to build a readable error).
+type goWorkerErrorPayload struct {
+	ErrorType    string `json:"error_type"`
+	ErrorMessage string `json:"error_message"`
+	CauseMessage string `json:"cause_message"`
+	StackTrace   string `json:"stack_trace"`
+}
+
+// taskExceptionFromGoWorkerError builds a readable task execution exception from a Go worker
+// error object. When the JSON payload cannot be parsed it still returns a readable exception
+// carrying the raw data, so the driver never sees a silent/generic deserialization failure.
+func taskExceptionFromGoWorkerError(data []byte) RayException {
+	var payload goWorkerErrorPayload
+	message := ""
+	stackTrace := ""
+	if err := json.Unmarshal(data, &payload); err == nil {
+		message = payload.ErrorMessage
+		if message == "" {
+			message = payload.CauseMessage
+		}
+		stackTrace = payload.StackTrace
+	} else {
+		message = string(data)
+	}
+	if message == "" {
+		message = "task execution failed"
+	}
+	return NewRayTaskExecutionException("", fmt.Errorf("%s", message), stackTrace)
+}
+
 // errorTypeFactories maps the C++ rpc::ErrorType numbers (used as error-object metadata) to
 // exception factories for the error types that have a dedicated Go exception class.
 var errorTypeFactories = map[int]func(*NativeRayObject) RayException{
@@ -467,6 +503,11 @@ var errorTypeFactories = map[int]func(*NativeRayObject) RayException{
 func ErrorObjectFromNative(nativeObj *NativeRayObject) (RayException, bool) {
 	if nativeObj == nil {
 		return nil, false
+	}
+	// The Go worker encodes task execution errors with a {"type":"error"} metadata and a JSON
+	// error payload (see convertGoResultToC in go/internal/runtime/cgo/task_executor.go).
+	if string(nativeObj.Metadata) == goWorkerErrorMetadata {
+		return taskExceptionFromGoWorkerError(nativeObj.Data), true
 	}
 	// Go local mode encodes task execution exceptions with a string metadata and msgpack data.
 	if string(nativeObj.Metadata) == MetadataTypeTaskExecutionException {

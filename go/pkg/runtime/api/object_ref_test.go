@@ -285,3 +285,40 @@ func TestObjectRefGet_ReturnsErrorObjectException(t *testing.T) {
 		t.Errorf("GetWithTimeout error should surface the worker death cause, got: %v", getErr)
 	}
 }
+
+// TestObjectRefGet_GoWorkerTaskExecutionError verifies Get surfaces the Go worker's task
+// execution error object (metadata {"type":"error"} with a JSON error payload) as a readable
+// RayTaskExecutionException carrying the panic message, not a deserialization failure.
+func TestObjectRefGet_GoWorkerTaskExecutionError(t *testing.T) {
+	objectID, err := ids.ObjectIDFromHex("0123456789abcdef0123456789abcdef0123456789abcdef01234567")
+	if err != nil {
+		t.Fatalf("Failed to create ObjectID: %v", err)
+	}
+
+	store := &getErrorObjectStore{
+		metadata: []byte(`{"type":"error"}`),
+		data:     []byte(`{"error_type":"RayTaskException","error_message":"Task execution panicked: PanicDiv: divide by zero"}`),
+	}
+	setHandle(&getErrorObjectHandle{rt: &getErrorObjectRuntime{store: store}})
+	// Restore the un-initialized state so the other tests in this package that expect
+	// ErrRuntimeNotInitialized are unaffected by this test's handle.
+	t.Cleanup(func() {
+		currentHandle = atomic.Value{}
+		initialized.Store(false)
+	})
+
+	ref := NewObjectRef[string](objectID, "string", true)
+	_, getErr := ref.Get()
+	if getErr == nil {
+		t.Fatal("Get should return an error for a Go worker task execution error object")
+	}
+	if !strings.Contains(getErr.Error(), "RayTaskExecutionException") {
+		t.Errorf("Get error should mention RayTaskExecutionException, got: %v", getErr)
+	}
+	if !strings.Contains(getErr.Error(), "PanicDiv") {
+		t.Errorf("Get error should carry the panic message, got: %v", getErr)
+	}
+	if strings.Contains(getErr.Error(), "failed to deserialize object") {
+		t.Errorf("Get error should not be the generic deserialization error, got: %v", getErr)
+	}
+}

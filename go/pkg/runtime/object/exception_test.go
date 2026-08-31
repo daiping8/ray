@@ -121,6 +121,35 @@ func TestErrorObjectFromNative_NumericMetadata(t *testing.T) {
 	}
 }
 
+// TestErrorObjectFromNative_GoWorkerError tests the Go worker's task-execution error object
+// convention: metadata {"type":"error"} with a JSON error payload produced by
+// convertGoResultToC in go/internal/runtime/cgo/task_executor.go.
+func TestErrorObjectFromNative_GoWorkerError(t *testing.T) {
+	data := []byte(`{"error_type":"RayTaskException","error_message":"Task execution panicked: PanicDiv: divide by zero","cause_message":"panic: PanicDiv: divide by zero"}`)
+	nativeObj := &NativeRayObject{Data: data, Metadata: []byte(`{"type":"error"}`)}
+	exc, ok := ErrorObjectFromNative(nativeObj)
+	if !ok {
+		t.Fatal("expected a Go worker error object to be detected as an error object")
+	}
+	if exc.ErrorCode() != ErrorCodeTaskExecutionException {
+		t.Errorf("error code = %d, want %d", exc.ErrorCode(), ErrorCodeTaskExecutionException)
+	}
+	if !strings.Contains(exc.Error(), "PanicDiv") {
+		t.Errorf("error message should carry the panic message, got: %s", exc.Error())
+	}
+
+	// An unparseable payload still yields a readable exception carrying the raw data, so the
+	// driver never sees a generic deserialization failure for a task-execution error.
+	nativeObj = &NativeRayObject{Data: []byte("not-json"), Metadata: []byte(`{"type":"error"}`)}
+	exc, ok = ErrorObjectFromNative(nativeObj)
+	if !ok {
+		t.Fatal("expected a Go worker error object with unparseable data to be detected")
+	}
+	if !strings.Contains(exc.Error(), "not-json") {
+		t.Errorf("error message should carry the raw payload, got: %s", exc.Error())
+	}
+}
+
 // TestErrorObjectFromNative_GoLocalMode tests the Go local-mode exception object convention:
 // MetadataTypeTaskExecutionException metadata with msgpack-encoded ExceptionData.
 func TestErrorObjectFromNative_GoLocalMode(t *testing.T) {
