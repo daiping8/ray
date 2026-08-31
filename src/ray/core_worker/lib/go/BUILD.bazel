@@ -42,7 +42,6 @@ ray_cc_library(
         "gcs_client_actors.cc",
         "gcs_client_autoscaler.cc",
         "gcs_client_publisher.cc",
-        "gcs_client_subscriber.cc",
     ],
     hdrs = [
         "gcs_client_bridge.h",

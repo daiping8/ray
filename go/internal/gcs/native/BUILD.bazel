@@ -11,7 +11,6 @@ go_library(
         "config.go",
         "nodes_cgo.go",
         "publisher_cgo.go",
-        "subscriber_cgo.go",
     ],
     cdeps = ["//src/ray/core_worker/lib/go:gcs_client_bridge"],
     cgo = True,
