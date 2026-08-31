@@ -66,6 +66,7 @@ ray_cc_test(
     name = "gcs_client_bridge_test",
     size = "small",
     srcs = ["gcs_client_bridge_test.cc"],
+    linkopts = ["-lm"],
     deps = [
         ":gcs_client_bridge",
         "@com_google_googletest//:gtest_main",
@@ -78,6 +79,7 @@ ray_cc_test(
     name = "gcs_client_publisher_test",
     size = "small",
     srcs = ["gcs_client_publisher_test.cc"],
+    linkopts = ["-lm"],
     deps = [
         ":gcs_client_bridge",
         ":gcs_memory",
