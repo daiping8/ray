@@ -8,7 +8,6 @@ go_library(
         "autoscaler_cgo.go",
         "client_cgo.go",
         "client_cgo_benchmark.go",
-        "config.go",
         "nodes_cgo.go",
         "publisher_cgo.go",
     ],
