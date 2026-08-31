@@ -453,6 +453,12 @@ var errorTypeFactories = map[int]func(*NativeRayObject) RayException{
 // ErrorObjectFromNative converts a NativeRayObject whose metadata encodes a Ray error type into a
 // readable RayException. It returns (nil, false) when the object is not an error object.
 //
+// Note on ErrorCode() semantics: exceptions produced for error types with a dedicated Go exception
+// class (WORKER_DIED, ACTOR_DIED, TASK_EXECUTION_EXCEPTION) return the Go ErrorCode* constant;
+// all other error types (e.g. WORKER_STARTUP_FAILED) fall back to newRayErrorTypeException and
+// return the raw C++ rpc::ErrorType number as ErrorCode(). Callers that switch on ErrorCode()
+// should treat both as identifiers of the error kind, not as values from a single numbering scheme.
+//
 // Two metadata conventions are recognized:
 //   - the C++ error-object convention: metadata is the decimal string of an rpc::ErrorType number
 //     (e.g. "33" for WORKER_STARTUP_FAILED), following RayObject::IsException;
