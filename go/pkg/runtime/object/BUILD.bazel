@@ -48,6 +48,7 @@ go_test(
     srcs = [
         "actor_handle_test.go",
         "exception_serializer_test.go",
+        "exception_test.go",
         "gpu_mapping_test.go",
         "object_ref_test.go",
         "object_serializer_test.go",

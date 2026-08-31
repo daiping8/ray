@@ -15,8 +15,12 @@
 package object
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
+
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 // exceptionFactory is a function type for creating exceptions from raw data.
@@ -347,4 +351,224 @@ func ExceptionFromBytes(data []byte) (RayException, error) {
 		code:    code,
 		message: message,
 	}, nil
+}
+
+// errorTypeNames mirrors the C++ rpc::ErrorType enum (src/ray/protobuf/common.proto).
+// An object whose metadata is the decimal string of one of these numbers is an error object
+// (see C++ RayObject::IsException in src/ray/common/ray_object.cc). Number 2 is intentionally
+// absent because no rpc::ErrorType value uses it.
+var errorTypeNames = map[int]string{
+	0:  "WORKER_DIED",
+	1:  "ACTOR_DIED",
+	3:  "TASK_EXECUTION_EXCEPTION",
+	4:  "OBJECT_IN_PLASMA",
+	5:  "TASK_CANCELLED",
+	6:  "ACTOR_CREATION_FAILED",
+	7:  "RUNTIME_ENV_SETUP_FAILED",
+	8:  "OBJECT_LOST",
+	9:  "OWNER_DIED",
+	10: "OBJECT_DELETED",
+	11: "DEPENDENCY_RESOLUTION_FAILED",
+	12: "OBJECT_UNRECONSTRUCTABLE_MAX_ATTEMPTS_EXCEEDED",
+	13: "OBJECT_UNRECONSTRUCTABLE_LINEAGE_EVICTED",
+	14: "OBJECT_FETCH_TIMED_OUT",
+	15: "LOCAL_RAYLET_DIED",
+	16: "TASK_PLACEMENT_GROUP_REMOVED",
+	17: "ACTOR_PLACEMENT_GROUP_REMOVED",
+	18: "TASK_UNSCHEDULABLE_ERROR",
+	19: "ACTOR_UNSCHEDULABLE_ERROR",
+	20: "OUT_OF_DISK_ERROR",
+	21: "OBJECT_FREED",
+	22: "OUT_OF_MEMORY",
+	23: "NODE_DIED",
+	24: "END_OF_STREAMING_GENERATOR",
+	25: "ACTOR_UNAVAILABLE",
+	26: "GENERATOR_TASK_FAILED_FOR_OBJECT_RECONSTRUCTION",
+	27: "OBJECT_UNRECONSTRUCTABLE_PUT",
+	28: "OBJECT_UNRECONSTRUCTABLE_RETRIES_DISABLED",
+	29: "OBJECT_UNRECONSTRUCTABLE_BORROWED",
+	30: "OBJECT_UNRECONSTRUCTABLE_REF_NOT_FOUND",
+	31: "OBJECT_UNRECONSTRUCTABLE_TASK_CANCELLED",
+	32: "OBJECT_UNRECONSTRUCTABLE_LINEAGE_DISABLED",
+	33: "WORKER_STARTUP_FAILED",
+	34: "STREAMING_GENERATOR_REPLAY_INCONSISTENT",
+}
+
+// errorTypeName returns the readable name for a C++ error type number, falling back to a
+// generated name for unknown numbers.
+func errorTypeName(errorType int) string {
+	if name, ok := errorTypeNames[errorType]; ok {
+		return name
+	}
+	return fmt.Sprintf("UNKNOWN_%d", errorType)
+}
+
+// IsErrorObject reports whether the object metadata encodes a Ray error type, following the C++
+// RayObject::IsException convention (src/ray/common/ray_object.cc): a metadata of at most 2 bytes
+// whose content is the canonical decimal string of an rpc::ErrorType number. Metadata longer than
+// 2 bytes (e.g. "PYTHON") is never an error. It returns the parsed error type number when the
+// metadata encodes one.
+func IsErrorObject(metadata []byte) (int, bool) {
+	// For performance, assume metadata of >2 chars (e.g. "PYTHON") is not an error.
+	if len(metadata) == 0 || len(metadata) > 2 {
+		return 0, false
+	}
+	meta := string(metadata)
+	errorType, err := strconv.Atoi(meta)
+	if err != nil {
+		return 0, false
+	}
+	// C++ compares the metadata string with std::to_string(error_type_number), so only the
+	// canonical decimal representation without leading zeros matches.
+	if strconv.Itoa(errorType) != meta {
+		return 0, false
+	}
+	if _, ok := errorTypeNames[errorType]; !ok {
+		return 0, false
+	}
+	return errorType, true
+}
+
+// errorTypeFactories maps the C++ rpc::ErrorType numbers (used as error-object metadata) to
+// exception factories for the error types that have a dedicated Go exception class.
+var errorTypeFactories = map[int]func(*NativeRayObject) RayException{
+	ErrorTypeWorkerDied: func(*NativeRayObject) RayException {
+		return NewRayWorkerException()
+	},
+	ErrorTypeActorDied: func(nativeObj *NativeRayObject) RayException {
+		if message := extractErrorInfoMessage(nativeObj.Data); message != "" {
+			return newRayErrorTypeException(ErrorTypeActorDied, "ACTOR_DIED", message)
+		}
+		return NewRayIDExceptionActorDied("")
+	},
+	ErrorTypeTaskExecutionException: func(nativeObj *NativeRayObject) RayException {
+		message := extractErrorInfoMessage(nativeObj.Data)
+		if message == "" {
+			message = "task execution failed"
+		}
+		return NewRayTaskExecutionException("", fmt.Errorf("%s", message), "")
+	},
+}
+
+// ErrorObjectFromNative converts a NativeRayObject whose metadata encodes a Ray error type into a
+// readable RayException. It returns (nil, false) when the object is not an error object.
+//
+// Two metadata conventions are recognized:
+//   - the C++ error-object convention: metadata is the decimal string of an rpc::ErrorType number
+//     (e.g. "33" for WORKER_STARTUP_FAILED), following RayObject::IsException;
+//   - the Go local-mode convention: metadata is MetadataTypeTaskExecutionException and Data holds
+//     msgpack-encoded ExceptionData produced by RayExceptionSerializer.
+func ErrorObjectFromNative(nativeObj *NativeRayObject) (RayException, bool) {
+	if nativeObj == nil {
+		return nil, false
+	}
+	// Go local mode encodes task execution exceptions with a string metadata and msgpack data.
+	if string(nativeObj.Metadata) == MetadataTypeTaskExecutionException {
+		exc, err := (&RayExceptionSerializer{}).FromBytes(nativeObj.Data)
+		if err == nil && exc != nil {
+			return exc, true
+		}
+	}
+	errorType, ok := IsErrorObject(nativeObj.Metadata)
+	if !ok {
+		return nil, false
+	}
+	if factory, exists := errorTypeFactories[errorType]; exists {
+		return factory(nativeObj), true
+	}
+	return newRayErrorTypeException(errorType, errorTypeName(errorType), extractErrorInfoMessage(nativeObj.Data)), true
+}
+
+// newRayErrorTypeException builds a readable exception for an error type that has no dedicated Go
+// exception class. The message includes the error type name and, when available, the error message
+// carried by the object.
+func newRayErrorTypeException(errorType int, name, message string) RayException {
+	if message == "" {
+		return &rayException{
+			code:    errorType,
+			message: fmt.Sprintf("RayException[%s]: object is a Ray error object (error_type=%d)", name, errorType),
+		}
+	}
+	return &rayException{
+		code:    errorType,
+		message: fmt.Sprintf("RayException[%s]: %s", name, message),
+	}
+}
+
+// extractErrorInfoMessage extracts the human-readable error message from a C++ error object's
+// data. C++ RayObject error objects carry their rpc::RayErrorInfo serialized as a msgpack-wrapped
+// protobuf (see MakeSerializedErrorBuffer in src/ray/common/ray_object.cc):
+//
+//	[msgpack int: wrapped size] [msgpack bin: serialized rpc::RayErrorInfo protobuf]
+//
+// rpc::RayErrorInfo.error_message is field 5 (string). Returns "" when the data cannot be parsed.
+func extractErrorInfoMessage(data []byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+	dec := msgpack.NewDecoder(bytes.NewReader(data))
+	if _, err := dec.DecodeInt64(); err != nil {
+		return ""
+	}
+	var serialized []byte
+	if err := dec.Decode(&serialized); err != nil {
+		return ""
+	}
+	return extractProtoStringField(serialized, 5)
+}
+
+// extractProtoStringField scans a protobuf wire-format message for the given field number and
+// returns its value when the field is a length-delimited string. It is a best-effort parser used
+// only to surface readable error messages from a serialized rpc::RayErrorInfo.
+func extractProtoStringField(data []byte, fieldNum int) string {
+	for i := 0; i < len(data); {
+		tag, n := decodeProtoVarint(data[i:])
+		if n == 0 {
+			return ""
+		}
+		i += n
+		if int(tag>>3) == fieldNum && int(tag&0x7) == 2 {
+			length, m := decodeProtoVarint(data[i:])
+			if m == 0 || length > uint64(len(data)-i-m) {
+				return ""
+			}
+			return string(data[i+m : i+m+int(length)])
+		}
+		var skip int
+		switch int(tag & 0x7) {
+		case 0: // varint
+			_, skip = decodeProtoVarint(data[i:])
+		case 1: // 64-bit
+			skip = 8
+		case 2: // length-delimited
+			length, m := decodeProtoVarint(data[i:])
+			if m == 0 || length > uint64(len(data)-i-m) {
+				return ""
+			}
+			skip = m + int(length)
+		case 5: // 32-bit
+			skip = 4
+		default:
+			return ""
+		}
+		if skip <= 0 || i+skip > len(data) {
+			return ""
+		}
+		i += skip
+	}
+	return ""
+}
+
+// decodeProtoVarint decodes a protobuf varint from data, returning the value and the number of
+// bytes consumed (0 on error).
+func decodeProtoVarint(data []byte) (uint64, int) {
+	var value uint64
+	for i := 0; i < len(data) && i < 10; i++ {
+		b := data[i]
+		value |= uint64(b&0x7f) << (7 * i)
+		if b&0x80 == 0 {
+			return value, i + 1
+		}
+	}
+	return 0, 0
 }
