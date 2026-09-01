@@ -1,6 +1,6 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
-# 主 native 库（包含 benchmark）
+# main native library (includes benchmark)
 go_library(
     name = "native",
     srcs = [
@@ -37,8 +37,8 @@ go_test(
     ],
 )
 
-# Benchmark 测试 - 使用 go test -bench=. -run=^$ 运行
-# 注意：benchmark 文件属于 package native，不是 package main，因此必须是 go_test 而不是 go_binary
+# Benchmark tests - run with go test -bench=. -run=^$
+# Note: benchmark files belong to package native, not package main, so they must be go_test not go_binary
 go_test(
     name = "benchmarks",
     srcs = ["client_cgo_benchmark.go"],

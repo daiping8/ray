@@ -1,6 +1,6 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
-# local_mode 包 - Local mode runtime implementation
+# local_mode package - local mode runtime implementation
 go_library(
     name = "local_mode",
     srcs = [

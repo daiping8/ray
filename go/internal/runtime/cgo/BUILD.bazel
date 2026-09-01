@@ -1,7 +1,7 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
-# cgo 包 - CGO 绑定集中在这里
-# 所有子目录已合并到单一包中
+# cgo package - CGO bindings centralized here
+# all subdirectories merged into a single package
 go_library(
     name = "cgo",
     srcs = [

@@ -7,7 +7,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 # - InitializeOptions and WorkerType types
 # - WorkerContext interface
 #
-# 注意：base 包不依赖任何其他 runtime 子包，避免循环依赖
+# Note: the base package depends on no other runtime subpackage, avoiding circular deps
 go_library(
     name = "base",
     srcs = [
@@ -30,7 +30,7 @@ go_library(
     ],
 )
 
-# base 包的单元测试
+# base package unit tests
 go_test(
     name = "base_test",
     srcs = ["options_test.go"],
