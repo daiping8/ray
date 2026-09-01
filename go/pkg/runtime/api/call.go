@@ -205,12 +205,41 @@ func (c *TaskCaller[T]) Call(args ...interface{}) (*ObjectRef[T], error) {
 		return nil, errors.ConvertToPublic(err)
 	}
 
+	// Once the task is submitted, the C++ reference counter tracks its
+	// pass-by-reference arguments; release the PutWithID local reference so the
+	// argument object is not pinned in the object store forever.
+	releaseInternalByRefArgRefs(functionArgs)
+
 	// Create ObjectRef for the first return value
 	if len(returnIDs) > 0 {
 		return createObjectRefWithFinalizer[T](returnIDs[0], "")
 	}
 
 	return nil, nil
+}
+
+// releaseInternalByRefArgRefs releases the local reference that PutWithID added
+// for the internal pass-by-reference arguments (marked ReleaseAfterSubmit) after
+// the task has been successfully submitted. From submission onward the C++
+// reference counter tracks the argument object (submitted-task reference plus
+// the worker's borrow), so leaving the local reference in place would pin the
+// object in the object store forever.
+func releaseInternalByRefArgRefs(args []function.FunctionArg) {
+	handle, ok := tryGetHandle()
+	if !ok || handle == nil {
+		return
+	}
+	runtime := handle.Runtime()
+	if runtime == nil || runtime.GetObjectStore() == nil {
+		return
+	}
+	objectStore := runtime.GetObjectStore()
+	for _, arg := range args {
+		if arg.IsPassByRef() && arg.ObjectRef != nil && arg.ObjectRef.ReleaseAfterSubmit {
+			objectID := arg.ObjectRef.ObjectID
+			_ = objectStore.RemoveLocalReference(&objectID)
+		}
+	}
 }
 
 // ============================================================================
@@ -367,6 +396,10 @@ func (c *ActorCreator[T]) Create(args ...interface{}) (*ActorHandleImpl[T], erro
 		return nil, errors.ConvertToPublic(err)
 	}
 
+	// Release PutWithID local references of internal by-reference constructor
+	// arguments now that the actor creation has been submitted.
+	releaseInternalByRefArgRefs(functionArgs)
+
 	// Create actor handle
 	return NewActorHandleImpl[T](actorID), nil
 }
@@ -445,8 +478,12 @@ func convertArgToFunctionArg(arg interface{}) function.FunctionArg {
 					// Put the object into the object store with the generated ID
 					err := objectStore.PutRawWithID(nativeObj, &objectID)
 					if err == nil {
-						// Return pass-by-reference argument
-						return function.NewFunctionArgByRef(objectID, nil)
+						// Return pass-by-reference argument, marked for release once
+						// the task is submitted so the PutWithID local reference does
+						// not pin the object in the object store forever.
+						arg := function.NewFunctionArgByRef(objectID, nil)
+						arg.ObjectRef.ReleaseAfterSubmit = true
+						return arg
 					}
 				}
 			}
@@ -582,6 +619,10 @@ func (c *ActorTaskCaller[T]) Remote() (*ObjectRef[T], error) {
 		// Convert internal error to public error
 		return nil, errors.ConvertToPublic(err)
 	}
+
+	// Release PutWithID local references of internal by-reference method-call
+	// arguments now that the actor task has been submitted.
+	releaseInternalByRefArgRefs(c.args)
 
 	if len(returnIDs) > 0 {
 		return createObjectRefWithFinalizer[T](returnIDs[0], "")

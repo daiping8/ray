@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"strconv"
 
 	"github.com/ray-project/ray/go/internal/errors"
 	"github.com/vmihailenco/msgpack/v5"
@@ -415,14 +414,18 @@ func ParseErrorType(metadata []byte) (int, bool) {
 	if len(metadata) == 0 || len(metadata) > 2 {
 		return 0, false
 	}
-	meta := string(metadata)
-	errorType, err := strconv.Atoi(meta)
-	if err != nil {
-		return 0, false
+	// Parse the decimal value directly from the bytes to avoid a []byte->string
+	// conversion (and allocation) on the hot path, which runs on every Get.
+	errorType := 0
+	for _, b := range metadata {
+		if b < '0' || b > '9' {
+			return 0, false
+		}
+		errorType = errorType*10 + int(b-'0')
 	}
 	// C++ compares the metadata string with std::to_string(error_type_number), so only the
-	// canonical decimal representation without leading zeros matches.
-	if strconv.Itoa(errorType) != meta {
+	// canonical decimal representation without leading zeros matches ("03" != "3").
+	if len(metadata) == 2 && metadata[0] == '0' {
 		return 0, false
 	}
 	if _, ok := errorTypeNames[errorType]; !ok {
