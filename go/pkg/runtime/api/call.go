@@ -183,6 +183,11 @@ func (c *TaskCaller[T]) Call(args ...interface{}) (*ObjectRef[T], error) {
 	for i, arg := range args {
 		functionArgs[i] = convertArgToFunctionArg(arg)
 	}
+	// Release the PutWithID local reference of internal pass-by-reference
+	// arguments on every exit path (successful submit, submit failure, or an
+	// unavailable submitter): once submitted, the C++ reference counter tracks
+	// the argument object; otherwise it would stay pinned in the object store.
+	defer releaseInternalByRefArgRefs(functionArgs)
 
 	// Get task submitter
 	submitter := getTaskSubmitter()
@@ -204,11 +209,6 @@ func (c *TaskCaller[T]) Call(args ...interface{}) (*ObjectRef[T], error) {
 		// Convert internal error to public error
 		return nil, errors.ConvertToPublic(err)
 	}
-
-	// Once the task is submitted, the C++ reference counter tracks its
-	// pass-by-reference arguments; release the PutWithID local reference so the
-	// argument object is not pinned in the object store forever.
-	releaseInternalByRefArgRefs(functionArgs)
 
 	// Create ObjectRef for the first return value
 	if len(returnIDs) > 0 {
@@ -376,6 +376,9 @@ func (c *ActorCreator[T]) Create(args ...interface{}) (*ActorHandleImpl[T], erro
 	for i, arg := range args {
 		functionArgs[i] = convertArgToFunctionArg(arg)
 	}
+	// Release the PutWithID local reference of internal pass-by-reference
+	// arguments on every exit path (see releaseInternalByRefArgRefs).
+	defer releaseInternalByRefArgRefs(functionArgs)
 
 	// Get task submitter
 	submitter := getTaskSubmitter()
@@ -395,10 +398,6 @@ func (c *ActorCreator[T]) Create(args ...interface{}) (*ActorHandleImpl[T], erro
 		// Convert internal error to public error
 		return nil, errors.ConvertToPublic(err)
 	}
-
-	// Release PutWithID local references of internal by-reference constructor
-	// arguments now that the actor creation has been submitted.
-	releaseInternalByRefArgRefs(functionArgs)
 
 	// Create actor handle
 	return NewActorHandleImpl[T](actorID), nil
@@ -600,6 +599,12 @@ func (c *ActorTaskCaller[T]) Remote() (*ObjectRef[T], error) {
 		return nil, c.err
 	}
 
+	// Release the PutWithID local reference of internal pass-by-reference
+	// arguments on every exit path (successful submit, submit failure, or an
+	// unavailable submitter): once submitted, the C++ reference counter tracks
+	// the argument object; otherwise it would stay pinned in the object store.
+	defer releaseInternalByRefArgRefs(c.args)
+
 	submitter := getTaskSubmitter()
 	if submitter == nil {
 		// Task submitter is nil even though runtime may be initialized.
@@ -619,10 +624,6 @@ func (c *ActorTaskCaller[T]) Remote() (*ObjectRef[T], error) {
 		// Convert internal error to public error
 		return nil, errors.ConvertToPublic(err)
 	}
-
-	// Release PutWithID local references of internal by-reference method-call
-	// arguments now that the actor task has been submitted.
-	releaseInternalByRefArgRefs(c.args)
 
 	if len(returnIDs) > 0 {
 		return createObjectRefWithFinalizer[T](returnIDs[0], "")
