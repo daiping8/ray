@@ -219,11 +219,12 @@ func (c *TaskCaller[T]) Call(args ...interface{}) (*ObjectRef[T], error) {
 }
 
 // releaseInternalByRefArgRefs releases the local reference that PutWithID added
-// for the internal pass-by-reference arguments (marked ReleaseAfterSubmit) after
-// the task has been successfully submitted. From submission onward the C++
-// reference counter tracks the argument object (submitted-task reference plus
-// the worker's borrow), so leaving the local reference in place would pin the
-// object in the object store forever.
+// for the internal pass-by-reference arguments (marked ReleaseAfterSubmit). It is
+// deferred so it runs on every exit path: after a successful submit the C++
+// reference counter tracks the argument object (submitted-task reference plus the
+// worker's borrow), and on a failed submit or an unavailable submitter the argument
+// was never used. Either way the reference is dropped and the object is not pinned
+// in the object store forever.
 func releaseInternalByRefArgRefs(args []function.FunctionArg) {
 	handle, ok := tryGetHandle()
 	if !ok || handle == nil {

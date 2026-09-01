@@ -36,11 +36,12 @@ func TestParseErrorType(t *testing.T) {
 		{[]byte("3"), RpcErrorTypeTaskExecutionException, true},
 		{[]byte("33"), RpcErrorTypeWorkerStartupFailed, true},
 		{[]byte("34"), 34, true},
-		// No rpc::ErrorType value uses number 2 in this tree's common.proto.
-		{[]byte("2"), 0, false},
-		// Numbers outside the enum range are not error objects.
-		{[]byte("35"), 0, false},
-		{[]byte("99"), 0, false},
+		// Forward-compatible: any canonical 1-2 digit decimal is treated as an error type
+		// even when this tree's common.proto does not define it (e.g. value 2 here); the
+		// readable name falls back to UNKNOWN_%d in errorTypeName.
+		{[]byte("2"), 2, true},
+		{[]byte("35"), 35, true},
+		{[]byte("99"), 99, true},
 		// Non-canonical decimal representations do not match the C++ string comparison.
 		{[]byte("03"), 0, false},
 		// Normal object metadata is never an error.
@@ -194,8 +195,6 @@ func TestErrorObjectFromNative_NotError(t *testing.T) {
 		[]byte("XLANG"),
 		[]byte("PYTHON"),
 		[]byte("ACTOR_HANDLE"),
-		[]byte("2"),
-		[]byte("99"),
 		nil,
 		{},
 	} {

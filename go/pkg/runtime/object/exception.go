@@ -428,9 +428,9 @@ func ParseErrorType(metadata []byte) (int, bool) {
 	if len(metadata) == 2 && metadata[0] == '0' {
 		return 0, false
 	}
-	if _, ok := errorTypeNames[errorType]; !ok {
-		return 0, false
-	}
+	// Any canonical 1-2 digit decimal is treated as an error type. This keeps the check
+	// forward-compatible with C++ ErrorType enum additions even when errorTypeNames has not
+	// been updated; errorTypeName falls back to a generated name for unmapped numbers.
 	return errorType, true
 }
 
