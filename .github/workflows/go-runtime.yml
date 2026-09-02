@@ -1,0 +1,43 @@
+name: Go runtime CI
+
+on:
+  pull_request:
+    branches: [master, feat/go-runtime]
+  push:
+    branches: [feat/go-runtime]
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Lint (hygiene, vet)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+      - name: Hygiene checks (license headers, no CJK, no internal ids, gofmt)
+        run: ci/go/check_hygiene.sh
+      - name: go vet (pure Go runtime packages)
+        working-directory: go
+        run: go vet ./pkg/...
+      - name: go build (pure Go runtime packages)
+        working-directory: go
+        run: go build ./pkg/...
+
+  test:
+    name: Bazel test (go/pkg)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bazelbuild/setup-bazelisk@v3
+      - name: Mount bazel cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/bazel
+          key: bazel-${{ runner.os }}-go-pkg-${{ hashFiles('go/go.sum', 'WORKSPACE', 'python/requirements_bazel.txt') }}
+          restore-keys: |
+            bazel-${{ runner.os }}-go-pkg-
+      - name: Build and test Go runtime packages
+        run: bazel test --test_output=errors //go/pkg/...
