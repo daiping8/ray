@@ -366,29 +366,27 @@ func setupObjectRefFinalizer[T any](ref *ObjectRef[T], objectIDForFinalizer ids.
 	runtime.SetFinalizer(ref, func(r *ObjectRef[T]) {
 		fmt.Fprintf(os.Stderr, "[%s] ObjectRef finalizer called for objectID=%s\n", logPrefix, objectIDForFinalizer.Hex())
 
-		// Acquire read lock on finalizerMu - this blocks if shutdown is running
-		// After acquiring the lock, we are guaranteed that shutdown is either:
-		// 1. Not yet started (shutdownComplete=false)
-		// 2. Already completed (shutdownComplete=true)
-		// But never in-progress, which prevents the SIGSEGV race condition
+		// Acquire read lock on finalizerMu - this blocks if shutdown is running.
+		// This guarantees shutdown is either not started or complete, never
+		// in-progress, matching the previous finalizer ordering.
 		finalizerMu.RLock()
 		defer finalizerMu.RUnlock()
 
 		if !r.released.CompareAndSwap(false, true) {
 			return
 		}
-		// Double-check if shutdown has completed - if so, skip RemoveLocalReference
-		// This check is now safe because we hold the read lock
+		// Double-check if shutdown has completed - if so, skip the release.
+		// This check is safe because we hold the read lock.
 		if shutdownComplete.Load() {
 			return
 		}
-		// Use the captured objectID copy, not r.objectID which may be corrupted
-		h, ok := tryGetHandle()
-		if ok && h != nil {
-			rr := h.Runtime()
-			if rr != nil && rr.GetObjectStore() != nil {
-				_ = rr.GetObjectStore().RemoveLocalReference(&objectIDForFinalizer)
-			}
+		// Do NOT call CGO here. Go runs finalizers on a GC-specialized
+		// goroutine where a CGO call into the C++ CoreWorker object store can
+		// segfault (observed as a SIGSEGV in RemoveLocalReference during
+		// runtime.runFinalizers). The object ID is pushed to a background
+		// worker that performs the serialized CGO release outside the GC.
+		if releaseQueue != nil {
+			releaseQueue <- objectIDForFinalizer
 		}
 	})
 }

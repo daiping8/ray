@@ -18,9 +18,73 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/ray-project/ray/go/pkg/ids"
 	"github.com/ray-project/ray/go/pkg/runtime/contract"
 	"github.com/ray-project/ray/go/pkg/runtime/submitter"
 )
+
+// releaseQueue receives object IDs whose local reference must be removed after
+// their ObjectRef is garbage collected. ObjectRef finalizers must NOT call CGO
+// directly: Go runs finalizers on a GC-specialized goroutine where a CGO call
+// into the C++ CoreWorker can segfault. Instead, finalizers push the object ID
+// onto this channel and a dedicated worker goroutine performs the (serialized)
+// CGO RemoveLocalReference outside the GC context.
+var releaseQueue chan ids.ObjectID
+
+// releaseWorkerStop is closed to signal the release worker goroutine to exit.
+var releaseWorkerStop chan struct{}
+
+// initReleaseWorker starts the background goroutine that drains releaseQueue.
+// It is idempotent; calling it multiple times is safe.
+func initReleaseWorker() {
+	if releaseQueue != nil {
+		return
+	}
+	releaseQueue = make(chan ids.ObjectID, 1024)
+	releaseWorkerStop = make(chan struct{})
+	go func() {
+		for {
+			select {
+			case objectID := <-releaseQueue:
+				removeLocalRefSafe(objectID)
+			case <-releaseWorkerStop:
+				// Drain any remaining items before exiting.
+				for {
+					select {
+					case objectID := <-releaseQueue:
+						removeLocalRefSafe(objectID)
+					default:
+						return
+					}
+				}
+			}
+		}
+	}()
+}
+
+// stopReleaseWorker stops the release worker goroutine. Called during shutdown
+// after all finalizers have been blocked (finalizerMu write lock held).
+func stopReleaseWorker() {
+	if releaseWorkerStop != nil {
+		close(releaseWorkerStop)
+	}
+}
+
+// removeLocalRefSafe performs the CGO RemoveLocalReference for one object ID,
+// guarding against runtime teardown the same way the finalizer body did.
+func removeLocalRefSafe(objectID ids.ObjectID) {
+	if shutdownComplete.Load() {
+		return
+	}
+	h, ok := tryGetHandle()
+	if !ok || h == nil {
+		return
+	}
+	rr := h.Runtime()
+	if rr != nil && rr.GetObjectStore() != nil {
+		_ = rr.GetObjectStore().RemoveLocalReference(&objectID)
+	}
+}
 
 // currentHandle is the current runtime handle.
 // Set by InitWithOptions, cleared by Shutdown.
@@ -132,6 +196,8 @@ func setHandle(h contract.RuntimeHandle) {
 	}
 	currentHandle.Store(h)
 	initialized.Store(true)
+	// Start the background release worker before any ObjectRef finalizer can run.
+	initReleaseWorker()
 }
 
 // clearHandle clears the handle after shutdown.
@@ -150,4 +216,6 @@ func clearHandle() {
 	// currentHandle.Store(contract.RuntimeHandle(nil)) // This would panic!
 	initialized.Store(false)
 	shutdownComplete.Store(true)
+	// Stop the release worker; any queued releases are drained before exit.
+	stopReleaseWorker()
 }

@@ -156,6 +156,12 @@ func cgoObjectIDArray(objectIDs []*ids.ObjectID) ([]*C.char, []C.int, func()) {
 type NativeObjectStore struct {
 	shutdownLock        *sync.RWMutex
 	resolveActorAddress func(context.Context, ids.ActorID) (*proto.Address, error)
+	// cgoMu serializes CGO calls into the C++ CoreWorker object store. ObjectRef
+	// finalizers (GC-triggered) and the caller's own task/put flows can otherwise
+	// enter the C++ side concurrently (e.g. RemoveLocalReference in a finalizer
+	// racing with PutWithID in the main goroutine), corrupting reference counts
+	// and causing a SIGSEGV. The mutex ensures one CGO call at a time.
+	cgoMu sync.Mutex
 }
 
 func NewNativeObjectStore(shutdownLock *sync.RWMutex, resolveActorAddress func(context.Context, ids.ActorID) (*proto.Address, error)) *NativeObjectStore {
@@ -285,6 +291,9 @@ func (n *NativeObjectStore) GetAllReferenceCounts() (map[ids.ObjectID][2]int64, 
 }
 
 func (n *NativeObjectStore) nativePut(obj *object.NativeRayObject, ownerAddress []byte) (*ids.ObjectID, error) {
+	n.cgoMu.Lock()
+	defer n.cgoMu.Unlock()
+
 	ownerAddrPtr, ownerAddrSize, ownerPinner := cgoByteSlice(ownerAddress)
 	defer ownerPinner.Unpin()
 
@@ -310,6 +319,9 @@ func (n *NativeObjectStore) nativePut(obj *object.NativeRayObject, ownerAddress 
 }
 
 func (n *NativeObjectStore) nativePutWithID(objectID *ids.ObjectID, obj *object.NativeRayObject) error {
+	n.cgoMu.Lock()
+	defer n.cgoMu.Unlock()
+
 	cObjectIDData, cObjectIDSize, cleanupObjectID := cgoBytes(objectID.Binary())
 	defer cleanupObjectID()
 
@@ -418,6 +430,8 @@ func (n *NativeObjectStore) nativeWait(objectIDs []*ids.ObjectID, numObjects int
 }
 
 func (n *NativeObjectStore) nativeDelete(objectIDs []*ids.ObjectID, localOnly bool) error {
+	n.cgoMu.Lock()
+	defer n.cgoMu.Unlock()
 	if len(objectIDs) == 0 {
 		return nil
 	}
@@ -439,6 +453,9 @@ func (n *NativeObjectStore) nativeDelete(objectIDs []*ids.ObjectID, localOnly bo
 }
 
 func (n *NativeObjectStore) nativeAddLocalReference(objectID *ids.ObjectID) error {
+	n.cgoMu.Lock()
+	defer n.cgoMu.Unlock()
+
 	binary := objectID.Binary()
 	cObjectIDData := (*C.char)(C.CBytes(binary))
 	defer C.free(unsafe.Pointer(cObjectIDData))
@@ -451,6 +468,9 @@ func (n *NativeObjectStore) nativeAddLocalReference(objectID *ids.ObjectID) erro
 }
 
 func (n *NativeObjectStore) nativeRemoveLocalReference(objectID *ids.ObjectID) error {
+	n.cgoMu.Lock()
+	defer n.cgoMu.Unlock()
+
 	binary := objectID.Binary()
 	cObjectIDData := (*C.char)(C.CBytes(binary))
 	defer C.free(unsafe.Pointer(cObjectIDData))
@@ -463,6 +483,9 @@ func (n *NativeObjectStore) nativeRemoveLocalReference(objectID *ids.ObjectID) e
 }
 
 func (n *NativeObjectStore) nativeGetAllReferenceCounts() ([]byte, error) {
+	n.cgoMu.Lock()
+	defer n.cgoMu.Unlock()
+
 	cResult := C.CObjectStore_GetAllReferenceCounts()
 	if cResult == nil {
 		return []byte("{}"), nil
