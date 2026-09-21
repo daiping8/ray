@@ -45,38 +45,13 @@ func TestNewNativeTaskSubmitter(t *testing.T) {
 	}
 }
 
-func TestGetActor(t *testing.T) {
-	// Note: This test requires a running Ray cluster with GCS
-	// In practice, this would be tested in an integration test environment
-
-	t.Run("GetNonExistentActor", func(t *testing.T) {
-		submitter := NewNativeTaskSubmitter(function.NewFunctionManager(nil))
-
-		// Try to get an actor that doesn't exist
-		actorHandle, err := submitter.GetActor("non_existent_actor", "")
-
-		// Should return nil handle or error
-		// The exact behavior depends on C++ implementation
-		if err == nil {
-			// If no error, handle should be nil for non-existent actor
-			assert.Nil(t, actorHandle)
-		} else {
-			// If error, it should indicate actor not found
-			assert.Contains(t, err.Error(), "not found")
-		}
-	})
-
-	t.Run("GetActorWithEmptyName", func(t *testing.T) {
-		submitter := NewNativeTaskSubmitter(function.NewFunctionManager(nil))
-
-		// Try to get an actor with empty name
-		actorHandle, err := submitter.GetActor("", "")
-
-		// Should return error for empty name
-		assert.Error(t, err)
-		assert.Nil(t, actorHandle)
-	})
-}
+// A cluster-dependent GetActor test is intentionally absent from this unit
+// target. GetActor resolves a named actor through the C++ CoreWorker GCS
+// client, which aborts the process when no core worker is running; because Go
+// runs tests in declaration order in a single binary, that abort would also
+// kill every test declared after it (the task_executor and converter tests).
+// Cluster-level coverage for named-actor lookup belongs in an integration test
+// target, not here.
 
 func TestNativeActorHandle_ID(t *testing.T) {
 	t.Run("ReturnsCorrectActorID", func(t *testing.T) {
