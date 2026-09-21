@@ -15,13 +15,17 @@
 package local_mode
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 
 	"github.com/ray-project/ray/go/internal/runtime/base"
 	"github.com/ray-project/ray/go/internal/runtime/objectstore"
+	rayerrors "github.com/ray-project/ray/go/pkg/errors"
 	"github.com/ray-project/ray/go/pkg/ids"
+	"github.com/ray-project/ray/go/pkg/log"
 	"github.com/ray-project/ray/go/pkg/runtime/function"
 	"github.com/ray-project/ray/go/pkg/runtime/object"
 	"github.com/ray-project/ray/go/pkg/runtime/submitter"
@@ -41,6 +45,13 @@ type LocalModeTaskSubmitter struct {
 	taskExecutor             *LocalModeTaskExecutor
 	functionMgr              *function.FunctionManager
 	actorConcurrencyGroupMgr *ActorConcurrencyGroupManager
+
+	// lastSyncedVersion is the function registry version at the last
+	// FunctionManager sync. Submission re-synchronizes only when the registry
+	// version advances (a new function was registered), avoiding a full
+	// re-registration on every submission. Atomic because submissions may come
+	// from multiple goroutines.
+	lastSyncedVersion atomic.Uint64
 
 	// waitingTasks maps object IDs to tasks waiting for them
 	waitingTasks      sync.Map // map[ids.ObjectID][]*taskSpec
@@ -292,19 +303,20 @@ func (s *LocalModeTaskSubmitter) executeTaskSpec(spec *taskSpec) {
 	returnIds := s.getReturnIds(spec.taskID, spec.numReturns)
 
 	if err != nil {
-		// Serialize the error as a task-execution exception object and put it
-		// into the return slot, so a caller Get()ing this ObjectRef receives the
-		// failure instead of blocking forever on a never-ready object.
-		excBytes, serErr := (&object.RayExceptionSerializer{}).ToBytes(
-			object.NewRayTaskExecutionException(spec.taskID.String(), err, ""))
-		if serErr == nil {
-			excObj := &object.NativeRayObject{
-				Data:     excBytes,
-				Metadata: []byte(object.MetadataTypeTaskExecutionException),
-			}
-			if len(returnIds) > 0 {
-				s.objectStore.PutRawWithID(excObj, &returnIds[0])
-			}
+		// Surface the failure as error objects for every return ID instead of
+		// silently dropping it. Silently returning here meant a task that failed
+		// to execute (e.g. an unsupported pass-by-reference argument) never put
+		// its return objects, so a driver blocking on ObjectRef.Get() waited
+		// forever in waitForObjects. Putting error objects lets the driver's Get
+		// surface the failure (ErrorObjectFromNative) instead of deadlocking.
+		//
+		// An intentional actor exit (api.ExitActor) is not a task failure and is
+		// excluded, matching the cluster-mode worker's IsActorExitError check.
+		var actorExit *rayerrors.ActorExitError
+		if !errors.As(err, &actorExit) {
+			log.Log.Error(err, "local-mode task failed", "taskID", spec.taskID.Hex(),
+				"taskType", int32(spec.taskType))
+			s.putErrorObjects(spec, err)
 		}
 		s.checkWaitingTasks()
 		return
@@ -402,6 +414,31 @@ func (s *LocalModeTaskSubmitter) getReturnIds(taskID ids.TaskID, numReturns int)
 		returnIds[i] = ids.ObjectIDFromIndex(taskID, uint32(i+1))
 	}
 	return returnIds
+}
+
+// putErrorObjects puts a task execution exception error object for every return
+// ID of the failed task. This mirrors the cluster-mode worker, which returns an
+// error object for each expected return value when task execution fails, so a
+// driver Get()ing the result surfaces the failure (via ErrorObjectFromNative)
+// instead of blocking forever on a return object that never appears.
+func (s *LocalModeTaskSubmitter) putErrorObjects(spec *taskSpec, err error) {
+	exc := object.NewRayTaskExecutionException(spec.taskID.Hex(), err, "")
+	data, serErr := (&object.RayExceptionSerializer{}).ToBytes(exc)
+	if serErr != nil {
+		log.Log.Error(serErr, "failed to serialize task execution error", "taskID", spec.taskID.Hex())
+		// Fall back to a raw error object so the driver still receives a failure.
+		data = []byte(fmt.Sprintf("task %s failed: %v", spec.taskID.Hex(), err))
+	}
+	returnIds := s.getReturnIds(spec.taskID, spec.numReturns)
+	for i := range returnIds {
+		if err := s.objectStore.PutRawWithID(&object.NativeRayObject{
+			Data:     data,
+			Metadata: []byte(object.MetadataTypeTaskExecutionException),
+		}, &returnIds[i]); err != nil {
+			log.Log.Error(err, "failed to put error object for failed task",
+				"taskID", spec.taskID.Hex())
+		}
+	}
 }
 
 // onObjectPut is called when an object is put into the object store.
