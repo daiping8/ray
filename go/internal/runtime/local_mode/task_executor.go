@@ -216,6 +216,12 @@ func (e *LocalModeTaskExecutor) GetActorContextByID(actorID ids.ActorID) (*Local
 	return nil, false
 }
 
+// RemoveActorContext removes the actor context for the given actor ID.
+// Called when an actor is killed or exits intentionally in local mode.
+func (e *LocalModeTaskExecutor) RemoveActorContext(actorID ids.ActorID) {
+	e.actorContexts.Delete(actorID)
+}
+
 // Compile-time check to ensure LocalModeTaskExecutor implements the expected interface
 var _ interface {
 	Execute(function.FunctionDescriptor, []function.FunctionArg, int) ([]function.SerializedObject, error)

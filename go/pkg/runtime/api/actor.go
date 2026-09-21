@@ -170,11 +170,11 @@ func KillActor(handle ActorHandle, noRestart bool) error {
 		return errors.NewRayInvalidArgumentException("actor handle has no actor ID")
 	}
 
-	// Killing an actor is a driver capability that a submitter may not
-	// implement (the cluster-mode submitter needs the CoreWorker KillActor
-	// binding, which this tree's CGO bridge does not expose). Probe for the
-	// capability so the public API stays usable and reports a clear error
-	// instead of panicking on a submitter that cannot kill actors.
+	// Killing an actor is an optional driver capability: submitter.TaskSubmitter
+	// stays minimal, and a submitter that can kill actors satisfies actorKiller
+	// structurally (both the cluster-mode and local-mode submitters do). Probe
+	// for the capability so a submitter that cannot kill actors reports a clear
+	// error instead of failing on a missing method.
 	killer, ok := taskSubmitter.(actorKiller)
 	if !ok {
 		return errors.NewRuntimeError("kill_actor", "kill_actor_not_supported")

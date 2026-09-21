@@ -478,7 +478,11 @@ func createObjectRefWithFinalizer[T any](returnID ids.ObjectID, objectType strin
 		released:           atomic.Bool{},
 	}
 
-	// Register local reference and set finalizer
+	// Register local reference and set finalizer.
+	// The C++ TaskManager::AddPendingTask already registered the local
+	// reference for the task return ID (add_local_ref=true, see
+	// src/ray/core_worker/task_manager.cc), so we must not AddLocalReference
+	// again or the object leaks (skipAddingLocalRef contract on the field).
 	handle, ok := tryGetHandle()
 	if !ok || handle == nil {
 		// Runtime not available - return ObjectRef without finalizer
@@ -490,9 +494,6 @@ func createObjectRefWithFinalizer[T any](returnID ids.ObjectID, objectType strin
 	if rt == nil || rt.GetObjectStore() == nil {
 		return ref, nil
 	}
-
-	objectStore := rt.GetObjectStore()
-	_ = objectStore.AddLocalReference(&returnID)
 
 	// Capture objectID in the finalizer closure to avoid accessing the ObjectRef
 	// after it has been garbage collected.

@@ -17,11 +17,13 @@
 package api
 
 import (
+	"bytes"
 	"fmt"
 	"reflect"
 
 	"github.com/ray-project/ray/go/pkg/errors"
 	"github.com/ray-project/ray/go/pkg/ids"
+	"github.com/ray-project/ray/go/pkg/runtime/contract"
 	"github.com/ray-project/ray/go/pkg/runtime/function"
 	"github.com/ray-project/ray/go/pkg/runtime/object"
 	"github.com/ray-project/ray/go/pkg/runtime/submitter"
@@ -980,9 +982,7 @@ func convertArgToFunctionArg(arg interface{}) function.FunctionArg {
 	// This aligns with Java's implementation in SystemConfig.java
 	if object.ShouldPassByValue(len(nativeObj.Data), object.GetIsLocalMode()) {
 		// Small object: pass by value (serialize directly)
-		data := make([]byte, len(nativeObj.Data))
-		copy(data, nativeObj.Data)
-		return function.NewFunctionArgByValue(data, nil)
+		return functionArgByValue(nativeObj)
 	} else {
 		// Large object: pass by reference (store in object store)
 		// Generate a new ObjectID for this argument
@@ -1000,8 +1000,12 @@ func convertArgToFunctionArg(arg interface{}) function.FunctionArg {
 					if err == nil {
 						// Return pass-by-reference argument, marked for release once
 						// the task is submitted so the PutWithID local reference does
-						// not pin the object in the object store forever.
-						arg := function.NewFunctionArgByRef(objectID, nil)
+						// not pin the object in the object store forever. The owner
+						// address (rpc address with worker_id) is required for the
+						// raylet to locate the owner when it pulls the object to
+						// schedule the task; an empty owner crashes the raylet in
+						// CoreWorkerClientPool::GetOrConnect.
+						arg := function.NewFunctionArgByRef(objectID, getCurrentWorkerRpcAddress(runtime))
 						arg.ObjectRef.ReleaseAfterSubmit = true
 						return arg
 					}
@@ -1010,10 +1014,35 @@ func convertArgToFunctionArg(arg interface{}) function.FunctionArg {
 		}
 
 		// Fallback: pass by value if object store is not available
-		data := make([]byte, len(nativeObj.Data))
-		copy(data, nativeObj.Data)
-		return function.NewFunctionArgByValue(data, nil)
+		return functionArgByValue(nativeObj)
 	}
+}
+
+// functionArgByValue deep-copies the serialized payload out of a NativeRayObject
+// and returns a pass-by-value FunctionArg. The copy is required because the
+// NativeRayObject may be returned to the buffer pool (Close) after the caller
+// returns, invalidating its backing slices. Metadata is carried so the receiving
+// runtime can deserialize cross-language arguments (e.g. Python requires a
+// non-empty metadata for non-null objects).
+func functionArgByValue(nativeObj *object.NativeRayObject) function.FunctionArg {
+	data := bytes.Clone(nativeObj.Data)
+	metadata := bytes.Clone(nativeObj.Metadata)
+	return function.NewFunctionArgByValue(data, metadata)
+}
+
+// getCurrentWorkerRpcAddress returns the worker's own RPC address as bytes. It
+// is used as the owner address for pass-by-reference arguments so the raylet can
+// locate the owning worker when it pulls the object to schedule the task; an
+// empty owner address crashes the raylet in CoreWorkerClientPool::GetOrConnect.
+func getCurrentWorkerRpcAddress(runtime contract.Runtime) []byte {
+	if runtime == nil {
+		return nil
+	}
+	wc := runtime.WorkerContext()
+	if wc == nil {
+		return nil
+	}
+	return wc.GetRpcAddress()
 }
 
 // getTaskSubmitter returns the current task submitter.

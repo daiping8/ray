@@ -221,6 +221,38 @@ func (s *LocalModeTaskSubmitter) GetActor(name string, namespace string) (submit
 	return nil, fmt.Errorf("actor not found: name=%s, namespace=%s", name, namespace)
 }
 
+// KillActor kills an actor from the driver side.
+//
+// Local mode has no C++ CoreWorker or GCS, so there is no automatic restart:
+// the kill is always final (equivalent to Java's noRestart=true semantics).
+// The actor's concurrency groups and task context are torn down, and any
+// named-actor registration is removed, so later submissions and GetActor
+// lookups report the actor as unavailable. The noRestart parameter is accepted
+// for API compatibility but has no effect (Java's local mode, RayDevRuntime,
+// does not support kill at all).
+func (s *LocalModeTaskSubmitter) KillActor(actorID ids.ActorID, noRestart bool) error {
+	s.removeActorState(actorID)
+	log.Log.Info("local-mode actor killed",
+		"actorID", actorID.Hex(), "noRestart", noRestart)
+	return nil
+}
+
+// removeActorState tears down all local-mode state for an actor so later
+// submissions and GetActor lookups report it as unavailable: the actor's
+// concurrency groups, task context, and any named-actor registration.
+func (s *LocalModeTaskSubmitter) removeActorState(actorID ids.ActorID) {
+	s.actorConcurrencyGroupMgr.RemoveGroup(actorID)
+	s.taskExecutor.RemoveActorContext(actorID)
+	// Remove any named-actor registration for this actor so GetActor no longer
+	// resolves it (matching Java: a killed/exited named actor is not resolvable).
+	s.namedActors.Range(func(key, value interface{}) bool {
+		if info, ok := value.(*namedActorInfo); ok && info.actorID == actorID {
+			s.namedActors.Delete(key)
+		}
+		return true
+	})
+}
+
 // submitTaskSpec submits a task specification for execution.
 func (s *LocalModeTaskSubmitter) submitTaskSpec(spec *taskSpec) {
 	s.syncFunctionsFromRegistry()
@@ -454,3 +486,10 @@ func (s *LocalModeTaskSubmitter) Shutdown() {
 
 // Compile-time check to ensure LocalModeTaskSubmitter implements TaskSubmitter
 var _ submitter.TaskSubmitter = (*LocalModeTaskSubmitter)(nil)
+
+// Compile-time check that LocalModeTaskSubmitter satisfies the structural
+// actorKiller capability probed by api.KillActor. Without it, a signature drift
+// would silently turn the public API back into a kill_actor_not_supported error.
+var _ interface {
+	KillActor(ids.ActorID, bool) error
+} = (*LocalModeTaskSubmitter)(nil)
