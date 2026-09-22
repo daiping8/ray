@@ -38,8 +38,7 @@ import (
 	rayerrors "github.com/ray-project/ray/go/internal/errors"
 	"github.com/ray-project/ray/go/internal/gcs/native"
 	"github.com/ray-project/ray/go/internal/runtime/base"
-	"github.com/ray-project/ray/go/internal/runtime/cgo"
-	_ "github.com/ray-project/ray/go/internal/runtime/native" // Register Runtime factory (init function)
+	nativeRuntime "github.com/ray-project/ray/go/internal/runtime/native" // Register Runtime factory + actor constructor registration
 	"github.com/ray-project/ray/go/pkg/gcs"
 	"github.com/ray-project/ray/go/pkg/ids"
 	"github.com/ray-project/ray/go/pkg/log"
@@ -279,8 +278,30 @@ func registerUserFunctions(rt contract.Runtime, codeSearchPath []string) error {
 
 	log.Log.Info("registering user functions with FunctionManager", "function_count", len(registeredFuncs))
 
+	// Actor constructors are registered with the runtime's ActorConstructorRegistrar
+	// (if available) instead of the FunctionManager, because an actor constructor
+	// returns a live instance rather than a serialized value.
+	var actorRegistrar contract.ActorConstructorRegistrar
+	if r, ok := rt.(contract.ActorConstructorRegistrar); ok {
+		actorRegistrar = r
+	}
+
 	// Register each function
 	for _, regFn := range registeredFuncs {
+		// Actor "<init>" constructors are registered with the runtime so that
+		// ACTOR_CREATION_TASK can build a live instance on the worker.
+		if regFn.Descriptor().MethodName() == function.ConstructorName {
+			if actorRegistrar != nil {
+				ctor := nativeRuntime.WrapActorConstructor(regFn.Function())
+				actorRegistrar.RegisterActorConstructor(regFn.Descriptor().String(), ctor)
+				log.Log.Info("registered actor constructor", "descriptor", regFn.Descriptor().String())
+			} else {
+				log.Log.Error(nil, "runtime does not support actor construction, skipping actor constructor",
+					"descriptor", regFn.Descriptor().String())
+			}
+			continue
+		}
+
 		// Wrap Go function to function.Function type
 		wrappedFn := wrapGoFunction(regFn.Function())
 
@@ -290,11 +311,6 @@ func registerUserFunctions(rt contract.Runtime, codeSearchPath []string) error {
 				"descriptor", regFn.Descriptor().String())
 			return fmt.Errorf("failed to register function %s: %w", regFn.Descriptor().String(), err)
 		}
-
-		// An actor method (a method value with a pointer-to-struct receiver)
-		// also implies an actor class so the worker can execute the actor
-		// creation task (<init>) without an explicit RegisterActorClass call.
-		registerImplicitActorClass(regFn.Function())
 	}
 
 	log.Log.Info("all user functions registered successfully", "count", len(registeredFuncs))
@@ -303,33 +319,6 @@ func registerUserFunctions(rt contract.Runtime, codeSearchPath []string) error {
 	api.MarkRegistryReadonly()
 
 	return nil
-}
-
-// registerImplicitActorClass registers a zero-argument constructor for the
-// receiver type of an actor method entry. When fn is a method value whose
-// first parameter is a pointer-to-struct (e.g. (*Counter).Inc), the actor
-// creation task can construct instances via reflect.New. Entries that are not
-// such method values are ignored.
-func registerImplicitActorClass(fn interface{}) {
-	fnType := reflect.TypeOf(fn)
-	if fnType == nil || fnType.Kind() != reflect.Func || fnType.NumIn() == 0 {
-		return
-	}
-	recv := fnType.In(0)
-	if recv.Kind() != reflect.Ptr || recv.Elem().Kind() != reflect.Struct {
-		return
-	}
-	className := recv.Elem().Name()
-	if className == "" {
-		return
-	}
-	cgo.RegisterActorClass(className, func(args []function.FunctionArg) (interface{}, error) {
-		if len(args) > 0 {
-			return nil, fmt.Errorf("actor class %s default constructor takes no arguments, got %d", className, len(args))
-		}
-		return reflect.New(recv.Elem()).Interface(), nil
-	})
-	log.Log.Info("registered implicit actor class", "className", className)
 }
 
 // wrapGoFunction wraps a Go function (interface{}) to function.Function type.
