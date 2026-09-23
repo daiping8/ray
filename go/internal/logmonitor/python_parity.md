@@ -1,10 +1,10 @@
-// Copyright 2026 The Ray Authors.
+# Copyright 2026 The Ray Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#  http:#www.apache.org/licenses/LICENSE-2.0
+#  http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -42,6 +42,7 @@ Behavior-to-test mapping:
 - Python reopen after file replacement -> `TestReopenIfNecessaryAfterReplacementParity`
 - Python keep-position behavior for larger replacement files -> `TestReopenIfNecessaryKeepsPositionForLargerReplacementParity`
 - Python reset after truncation -> `TestReopenIfNecessaryAfterTruncationParity`
+- Python in-place truncate-and-rewrite detection -> `TestInPlaceRewriteDetected`
 - Python open-file backpressure -> `TestOpenClosedFilesParity`
 - Python unchanged closed files remain closed -> `TestOpenClosedFilesSkipsUnchangedClosedFilesParity`
 - Python dead-worker archive behavior -> `TestCloseAllFilesArchivesDeadWorkersParity`
@@ -52,7 +53,7 @@ Behavior-to-test mapping:
 Runtime/startup behavior mapping:
 
 - Python control-plane chooses Go command when enabled -> `python/ray/tests/test_logging.py::test_start_log_monitor_uses_go_command_when_enabled`
-- Go path takes priority over C++ path -> `python/ray/tests/test_logging.py::test_start_log_monitor_prefers_go_over_cpp`
+- Go command replaces the Python monitor when enabled -> `python/ray/tests/test_logging.py::test_start_log_monitor_uses_go_command_over_python`
 - Python control-plane passes cluster ID to Go -> `python/ray/tests/test_logging.py::test_start_log_monitor_passes_cluster_id_to_go_command`
 - Python control-plane passes node IP to Go -> `python/ray/tests/test_logging.py::test_start_log_monitor_passes_node_ip_to_go_command`
 - `Node.start_log_monitor()` forwards node IP into services -> `python/ray/tests/test_logging.py::test_node_start_log_monitor_passes_node_ip_to_services`

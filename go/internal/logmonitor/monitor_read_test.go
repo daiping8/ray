@@ -102,6 +102,7 @@ func TestMaxLinesPerReadParity(t *testing.T) {
 		t.Fatalf("second openClosedFiles() error = %v", err)
 	}
 
+	// The first poll must stop at the per-read cap.
 	published, err := m.checkLogFilesAndPublishUpdates()
 	if err != nil {
 		t.Fatalf("checkLogFilesAndPublishUpdates() error = %v", err)
@@ -112,5 +113,33 @@ func TestMaxLinesPerReadParity(t *testing.T) {
 	last := publisher.batches[len(publisher.batches)-1]
 	if len(last.Lines) != 3 {
 		t.Fatalf("len(lines) = %d, want 3", len(last.Lines))
+	}
+	if last.Lines[0] != "1" || last.Lines[1] != "2" || last.Lines[2] != "3" {
+		t.Fatalf("lines = %#v, want [1 2 3]", last.Lines)
+	}
+	if got := m.openFiles[0].filePosition; got != int64(len("1\n2\n3\n")) {
+		t.Fatalf("filePosition = %d, want %d; unconsumed buffered lines must not advance the recorded position", got, len("1\n2\n3\n"))
+	}
+
+	// Lines beyond the cap must still arrive on later polls instead of
+	// being skipped.
+	published, err = m.checkLogFilesAndPublishUpdates()
+	if err != nil {
+		t.Fatalf("second checkLogFilesAndPublishUpdates() error = %v", err)
+	}
+	if !published {
+		t.Fatal("expected lines left beyond the cap to be published on the next poll")
+	}
+	last = publisher.batches[len(publisher.batches)-1]
+	if len(last.Lines) != 2 || last.Lines[0] != "4" || last.Lines[1] != "5" {
+		t.Fatalf("lines = %#v, want [4 5]", last.Lines)
+	}
+
+	total := 0
+	for _, batch := range publisher.batches {
+		total += len(batch.Lines)
+	}
+	if total != 5 {
+		t.Fatalf("total published lines = %d, want 5", total)
 	}
 }

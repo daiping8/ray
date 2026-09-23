@@ -15,6 +15,7 @@
 package logmonitor
 
 import (
+	"bufio"
 	"os"
 	"strconv"
 )
@@ -23,13 +24,27 @@ type logFileInfo struct {
 	filename           string
 	sizeWhenLastOpened int64
 	filePosition       int64
-	fileHandle         *os.File
-	isErrFile          bool
-	jobID              string
-	workerPID          *int
-	componentPID       string
-	actorName          string
-	taskName           string
+	// consumedBytes counts bytes read through reader since the current
+	// handle was opened; after each poll it becomes filePosition, so
+	// buffered-but-unread lines do not advance the recorded position.
+	consumedBytes int64
+	fileHandle    *os.File
+	// reader persists across polls so lines left in its buffer when
+	// maxLinesPerRead ends a poll are delivered on the next poll.
+	reader       *bufio.Reader
+	isErrFile    bool
+	jobID        string
+	workerPID    *int
+	componentPID string
+	actorName    string
+	taskName     string
+}
+
+func max64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (f *logFileInfo) currentSize() (int64, error) {
@@ -50,6 +65,10 @@ func (f *logFileInfo) openAtCurrentPosition() error {
 		return err
 	}
 	f.fileHandle = handle
+	// The new handle starts reading at filePosition, so buffered reader
+	// state from a previous handle is invalid.
+	f.reader = nil
+	f.consumedBytes = f.filePosition
 	return nil
 }
 
@@ -68,7 +87,11 @@ func (f *logFileInfo) reopenIfNecessary() error {
 	}
 
 	needReopen := !os.SameFile(currentInfo, openInfo)
-	rewindToStart := currentInfo.Size() < f.filePosition
+	// The file may be truncated and rewritten in place without changing its
+	// inode. The new size can land anywhere below the last observed size,
+	// including between the read position and the size seen when the file
+	// was opened, so compare against both (matches log_monitor.py).
+	rewindToStart := currentInfo.Size() < max64(f.filePosition, f.sizeWhenLastOpened)
 	if needReopen || rewindToStart {
 		_ = f.fileHandle.Close()
 		f.fileHandle = nil

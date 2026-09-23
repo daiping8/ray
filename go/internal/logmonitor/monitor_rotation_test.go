@@ -17,6 +17,7 @@ package logmonitor
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -98,5 +99,66 @@ func TestReopenIfNecessaryKeepsPositionForLargerReplacementParity(t *testing.T) 
 	}
 	if info.filePosition != int64(len("line1\n")) {
 		t.Fatalf("filePosition = %d, want %d after larger replacement", info.filePosition, len("line1\n"))
+	}
+}
+
+func TestInPlaceRewriteDetected(t *testing.T) {
+	logsDir := t.TempDir()
+	publisher := &recordingPublisher{}
+	// ~2KB initial content so the rewrite below lands between the consumed
+	// position and the last observed size.
+	logPath := createLogFile(t, logsDir, "raylet.err", "AAA\nBBB\n"+strings.Repeat("x", 2000)+"\n")
+
+	m, err := New("127.0.0.1", logsDir, publisher)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	m.maxLinesPerRead = 2
+
+	if err := m.updateLogFilenames(); err != nil {
+		t.Fatalf("updateLogFilenames() error = %v", err)
+	}
+	if err := m.openClosedFiles(); err != nil {
+		t.Fatalf("openClosedFiles() error = %v", err)
+	}
+
+	published, err := m.checkLogFilesAndPublishUpdates()
+	if err != nil {
+		t.Fatalf("checkLogFilesAndPublishUpdates() error = %v", err)
+	}
+	if !published {
+		t.Fatal("expected initial content to be published")
+	}
+	if got := m.openFiles[0].filePosition; got != int64(len("AAA\nBBB\n")) {
+		t.Fatalf("filePosition = %d, want %d", got, len("AAA\nBBB\n"))
+	}
+	size, err := m.openFiles[0].currentSize()
+	if err != nil {
+		t.Fatalf("currentSize() error = %v", err)
+	}
+	if m.openFiles[0].filePosition >= size {
+		t.Fatalf("test setup broken: position %d must be below size %d", m.openFiles[0].filePosition, size)
+	}
+
+	// Truncate and rewrite in place (same inode) with content that is larger
+	// than the consumed position but smaller than the last observed size.
+	rewritten := "XXX\n" + strings.Repeat("y", 96)
+	if err := os.WriteFile(logPath, []byte(rewritten), 0o644); err != nil {
+		t.Fatalf("rewrite in place: %v", err)
+	}
+
+	published, err = m.checkLogFilesAndPublishUpdates()
+	if err != nil {
+		t.Fatalf("second checkLogFilesAndPublishUpdates() error = %v", err)
+	}
+	if !published {
+		t.Fatal("expected rewritten content to be published")
+	}
+	last := publisher.batches[len(publisher.batches)-1]
+	if len(last.Lines) == 0 || last.Lines[0] != "XXX" {
+		t.Fatalf("lines = %#v, want first line \"XXX\" after in-place rewrite", last.Lines)
+	}
+	if got := m.openFiles[0].filePosition; got != int64(len(rewritten)) {
+		t.Fatalf("filePosition = %d, want %d after rewrite", got, len(rewritten))
 	}
 }

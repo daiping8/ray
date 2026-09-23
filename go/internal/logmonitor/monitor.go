@@ -234,6 +234,7 @@ func (m *Monitor) closeAllFiles() error {
 		if fileInfo.fileHandle != nil {
 			_ = fileInfo.fileHandle.Close()
 			fileInfo.fileHandle = nil
+			fileInfo.reader = nil
 		}
 
 		alive := true
@@ -314,12 +315,18 @@ func (m *Monitor) checkLogFilesAndPublishUpdates() (bool, error) {
 			return nil
 		}
 
-		reader := bufio.NewReader(fileInfo.fileHandle)
+		// The reader is persistent across polls: lines left in its buffer
+		// when maxLinesPerRead ends this poll stay available for the next
+		// poll instead of being skipped.
+		if fileInfo.reader == nil {
+			fileInfo.reader = bufio.NewReader(fileInfo.fileHandle)
+		}
 		for i := 0; i < m.maxLinesPerRead; i++ {
-			line, err := reader.ReadString('\n')
+			line, err := fileInfo.reader.ReadString('\n')
 			if err != nil && line == "" {
 				break
 			}
+			fileInfo.consumedBytes += int64(len(line))
 			line = strings.TrimRight(line, "\r\n")
 			switch {
 			case strings.HasPrefix(line, logPrefixActorName):
@@ -336,7 +343,9 @@ func (m *Monitor) checkLogFilesAndPublishUpdates() (bool, error) {
 			case strings.HasPrefix(line, logPrefixJobID):
 				fileInfo.jobID = strings.TrimPrefix(line, logPrefixJobID)
 			case line == windowsAccessViolationLine:
-				_, _ = reader.ReadString('\n')
+				if skipped, _ := fileInfo.reader.ReadString('\n'); skipped != "" {
+					fileInfo.consumedBytes += int64(len(skipped))
+				}
 			case line == "":
 				pending = append(pending, "")
 			default:
@@ -344,7 +353,7 @@ func (m *Monitor) checkLogFilesAndPublishUpdates() (bool, error) {
 			}
 		}
 
-		fileInfo.filePosition, _ = fileInfo.fileHandle.Seek(0, 1)
+		fileInfo.filePosition = fileInfo.consumedBytes
 		if err := flush(); err != nil {
 			return false, err
 		}
