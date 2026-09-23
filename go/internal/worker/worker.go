@@ -30,7 +30,6 @@ import (
 	"fmt"
 	"os"
 	"plugin"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -46,7 +45,6 @@ import (
 	"github.com/ray-project/ray/go/pkg/runtime/api"
 	"github.com/ray-project/ray/go/pkg/runtime/contract"
 	"github.com/ray-project/ray/go/pkg/runtime/function"
-	"github.com/ray-project/ray/go/pkg/runtime/object"
 	"github.com/ray-project/ray/go/proto"
 )
 
@@ -303,7 +301,7 @@ func registerUserFunctions(rt contract.Runtime, codeSearchPath []string) error {
 		}
 
 		// Wrap Go function to function.Function type
-		wrappedFn := wrapGoFunction(regFn.Function())
+		wrappedFn := function.WrapGoFunction(regFn.Function())
 
 		// Register with FunctionManager
 		if err := funcMgr.RegisterFunction(regFn.Descriptor(), wrappedFn); err != nil {
@@ -319,85 +317,6 @@ func registerUserFunctions(rt contract.Runtime, codeSearchPath []string) error {
 	api.MarkRegistryReadonly()
 
 	return nil
-}
-
-// wrapGoFunction wraps a Go function (interface{}) to function.Function type.
-// The wrapper handles argument deserialization and result serialization.
-//
-// Parameters:
-//   - fn: the Go function to wrap (must be a regular function)
-//
-// Returns:
-//   - function.Function: wrapped function that can be called with FunctionArg slice
-func wrapGoFunction(fn interface{}) function.Function {
-	// Get the reflect.Value of the function
-	funcValue := reflect.ValueOf(fn)
-	funcType := funcValue.Type()
-
-	return func(args []function.FunctionArg) ([]function.SerializedObject, error) {
-		// Prepare arguments for calling the Go function
-		in := make([]reflect.Value, len(args))
-
-		// Use object.Serializer interface for deserialization
-		// This decouples from specific msgpack implementation and follows
-		// the Dependency Inversion Principle
-		ser := object.GetSerializer()
-
-		for i, arg := range args {
-			if arg.IsPassByValue() && arg.Data != nil {
-				// Deserialize pass-by-value argument
-				// The expected type is determined by the function signature
-				expectedType := funcType.In(i)
-
-				// Create NativeRayObject from serialized data
-				nativeObj := &object.NativeRayObject{
-					Data:     arg.Data.Data,
-					Metadata: arg.Data.Metadata,
-				}
-
-				// Deserialize directly to target type using Serializer interface
-				// This avoids the issue of msgpack decoding small integers as int8/uint8
-				deserialized := reflect.New(expectedType).Interface()
-				if err := ser.DeserializeTo(nativeObj, deserialized); err != nil {
-					return nil, fmt.Errorf("failed to deserialize argument %d: %w", i, err)
-				}
-
-				// Get the deserialized value
-				in[i] = reflect.ValueOf(deserialized).Elem()
-
-			} else if arg.IsPassByRef() {
-				// For pass-by-reference, we need to fetch from object store
-				// This requires access to the object store via the runtime
-				// For now, return an error - this needs to be handled by the runtime
-				return nil, fmt.Errorf("pass-by-reference arguments not yet supported")
-			} else {
-				// Handle nil or unsupported argument types
-				in[i] = reflect.Zero(funcType.In(i))
-			}
-		}
-
-		// Call the Go function
-		out := funcValue.Call(in)
-
-		// Serialize return values using object.Serializer interface
-		// This automatically handles metadata type determination and provides
-		// a consistent serialization approach across the codebase
-		results := make([]function.SerializedObject, len(out))
-		for i, val := range out {
-			// Use Serializer.Serialize() to get NativeRayObject, then extract Data
-			// The underlying implementation handles the 9-byte length header
-			nativeObj, err := ser.Serialize(val.Interface())
-			if err != nil {
-				return nil, fmt.Errorf("failed to serialize return value %d: %w", i, err)
-			}
-
-			// SerializedObjectFromNative deep-copies the payload and returns the
-			// pooled buffer, so the task spec never aliases a recycled pool buffer.
-			results[i] = function.SerializedObjectFromNative(nativeObj)
-		}
-
-		return results, nil
-	}
 }
 
 // Run starts the Worker execution loop.
