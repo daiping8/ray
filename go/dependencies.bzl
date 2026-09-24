@@ -813,6 +813,7 @@ def gazelle_dependencies():
         importpath = "golang.org/x/sync",
         sum = "h1:e0PTpb7pjO8GAtTs2dQ6jYa5BWYlMuX047Dco/pItO4=",
         version = "v0.20.0",
+        build_file_generation = "on",
     )
     go_repository(
         name = "org_golang_x_sys",
