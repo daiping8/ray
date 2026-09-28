@@ -7,7 +7,7 @@
 //  http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS" BASIS,
+// distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
@@ -509,8 +509,8 @@ func TestParseURI_File(t *testing.T) {
 func TestIsZipURI_True(t *testing.T) {
 	tests := []string{
 		"https://example.com/package.zip",
-		"s3://bucket/file.zip",
-		"gs://bucket/archive.zip",
+		"https://s3.example.com/bucket/file.zip",
+		"https://gs.example.com/bucket/archive.zip",
 	}
 
 	for _, uri := range tests {
@@ -525,7 +525,7 @@ func TestIsZipURI_True(t *testing.T) {
 func TestIsZipURI_False(t *testing.T) {
 	tests := []string{
 		"https://example.com/package.whl",
-		"s3://bucket/file.jar",
+		"https://s3.example.com/bucket/file.jar",
 		"invalid-uri",
 	}
 
@@ -543,7 +543,7 @@ func TestIsZipURI_False(t *testing.T) {
 func TestIsWhlURI_True(t *testing.T) {
 	tests := []string{
 		"https://example.com/package.whl",
-		"s3://bucket/file.whl",
+		"https://s3.example.com/bucket/file.whl",
 	}
 
 	for _, uri := range tests {
@@ -558,7 +558,7 @@ func TestIsWhlURI_True(t *testing.T) {
 func TestIsWhlURI_False(t *testing.T) {
 	tests := []string{
 		"https://example.com/package.zip",
-		"s3://bucket/file.jar",
+		"https://s3.example.com/bucket/file.jar",
 		"invalid-uri",
 	}
 
@@ -576,7 +576,7 @@ func TestIsWhlURI_False(t *testing.T) {
 func TestIsJarURI_True(t *testing.T) {
 	tests := []string{
 		"https://example.com/package.jar",
-		"s3://bucket/file.jar",
+		"https://s3.example.com/bucket/file.jar",
 	}
 
 	for _, uri := range tests {
@@ -591,7 +591,7 @@ func TestIsJarURI_True(t *testing.T) {
 func TestIsJarURI_False(t *testing.T) {
 	tests := []string{
 		"https://example.com/package.zip",
-		"s3://bucket/file.whl",
+		"https://s3.example.com/bucket/file.whl",
 		"invalid-uri",
 	}
 

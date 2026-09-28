@@ -19,8 +19,10 @@ package runtime_env_agent
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/ray-project/ray/go/internal/common"
@@ -54,6 +56,12 @@ var (
 	logDir              string
 	tempDir             string
 	pythonExecutable    string
+
+	// Port persistence flags: the raylet discovers this agent by waiting for
+	// the bound port to be written into the session directory, so with an
+	// OS-assigned port (0) these two must be present.
+	sessionDir string
+	nodeID     string
 
 	// Logging configuration flags.
 	loggingLevel             string
@@ -95,6 +103,8 @@ func init() {
 	RuntimeEnvAgentCmd.Flags().StringVar(&clusterIDHex, "cluster-id-hex", "", "The cluster id in hex.")
 	RuntimeEnvAgentCmd.Flags().StringVar(&runtimeEnvDir, "runtime-env-dir", "", "Specify the path of the resource directory used by runtime_env.")
 	RuntimeEnvAgentCmd.Flags().StringVar(&pythonExecutable, "python-executable", "", "Specify the Python executable path.")
+	RuntimeEnvAgentCmd.Flags().StringVar(&sessionDir, "session-dir", "", "Session directory where the bound port is persisted for the raylet to discover.")
+	RuntimeEnvAgentCmd.Flags().StringVar(&nodeID, "node-id", "", "Hex node ID used in the persisted port file name.")
 	RuntimeEnvAgentCmd.Flags().IntVar(&loggingRotateBytes, "logging-rotate-bytes", 0, "Specify the max bytes for rotating log file")
 	RuntimeEnvAgentCmd.Flags().IntVar(&loggingRotateBackupCount, "logging-rotate-backup-count", 0, "Specify the backup count of rotated log file")
 	RuntimeEnvAgentCmd.Flags().StringVar(&logDir, "log-dir", "", "Specify the path of log directory.")
@@ -220,9 +230,23 @@ func runRuntimeEnvAgent(ctx context.Context) error {
 		return fmt.Errorf("failed to create runtime env agent service: %w", err)
 	}
 
-	// 3. Create the HTTP server.
+	// 3. Create the HTTP server. When the port is OS-assigned (0), the bound
+	// port is persisted to the session directory so the raylet's
+	// WaitForPersistedPort finds it; without a persisted file the raylet
+	// times out and FATALs.
 	addr := fmt.Sprintf("%s:%d", nodeIPAddress, runtimeEnvAgentPort)
 	server := agent.NewHTTPServer(addr, agentService)
+	if sessionDir != "" && nodeID != "" {
+		portFileName := fmt.Sprintf("runtime_env_agent_port_%s", nodeID)
+		server.OnBound = func(port int) {
+			portFile := filepath.Join(sessionDir, portFileName)
+			if err := os.WriteFile(portFile, []byte(strconv.Itoa(port)), 0644); err != nil {
+				log.Log.Error(err, "Failed to persist runtime env agent port", "file", portFile)
+				return
+			}
+			log.Log.Info("Runtime env agent port persisted", "port", port, "file", portFile)
+		}
+	}
 
 	// 4. Start the HTTP server (blocks until ctx is cancelled).
 	log.Log.Info("Starting HTTP server", "address", addr)

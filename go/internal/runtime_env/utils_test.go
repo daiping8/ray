@@ -7,7 +7,7 @@
 //  http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS" BASIS,
+// distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
@@ -117,19 +117,19 @@ func TestContainerConfig(t *testing.T) {
 
 func TestFromMap(t *testing.T) {
 	t.Run("create from map with py_modules", func(t *testing.T) {
-		data := map[string]interface{}{"py_modules": []interface{}{"gcs://path/to/mod1.zip", "s3://bucket/mod2.whl"}}
+		data := map[string]interface{}{"py_modules": []interface{}{"gcs://path/to/mod1.zip", "https://s3.example.com/bucket/mod2.whl"}}
 		env, err := FromMap(data)
 		assert.NoError(t, err)
 		assert.NotNil(t, env)
-		assert.Equal(t, []string{"gcs://path/to/mod1.zip", "s3://bucket/mod2.whl"}, env.PyModules())
+		assert.Equal(t, []string{"gcs://path/to/mod1.zip", "https://s3.example.com/bucket/mod2.whl"}, env.PyModules())
 	})
 
 	t.Run("create from map with py_modules as string slice", func(t *testing.T) {
-		data := map[string]interface{}{"py_modules": []string{"gcs://path/to/mod1.zip", "s3://bucket/mod2.whl"}}
+		data := map[string]interface{}{"py_modules": []string{"gcs://path/to/mod1.zip", "https://s3.example.com/bucket/mod2.whl"}}
 		env, err := FromMap(data)
 		assert.NoError(t, err)
 		assert.NotNil(t, env)
-		assert.Equal(t, []string{"gcs://path/to/mod1.zip", "s3://bucket/mod2.whl"}, env.PyModules())
+		assert.Equal(t, []string{"gcs://path/to/mod1.zip", "https://s3.example.com/bucket/mod2.whl"}, env.PyModules())
 	})
 
 	t.Run("create from map with java_jars", func(t *testing.T) {
@@ -218,11 +218,11 @@ func TestFromMap(t *testing.T) {
 
 func TestDeserialize(t *testing.T) {
 	t.Run("deserialize valid json using FromMap", func(t *testing.T) {
-		data := map[string]interface{}{"py_modules": []interface{}{"gcs://path/to/mod1.zip", "s3://bucket/mod2.whl"}, "working_dir": "gcs://path/to/workspace.zip"}
+		data := map[string]interface{}{"py_modules": []interface{}{"gcs://path/to/mod1.zip", "https://s3.example.com/bucket/mod2.whl"}, "working_dir": "gcs://path/to/workspace.zip"}
 		env, err := FromMap(data)
 		assert.NoError(t, err)
 		assert.NotNil(t, env)
-		assert.Equal(t, []string{"gcs://path/to/mod1.zip", "s3://bucket/mod2.whl"}, env.PyModules())
+		assert.Equal(t, []string{"gcs://path/to/mod1.zip", "https://s3.example.com/bucket/mod2.whl"}, env.PyModules())
 		assert.Equal(t, "gcs://path/to/workspace.zip", env.WorkingDir())
 	})
 
@@ -244,7 +244,7 @@ func TestDeserialize(t *testing.T) {
 func TestSerialize(t *testing.T) {
 	t.Run("serialize env to json", func(t *testing.T) {
 		env, err := NewRuntimeEnv(func(opts *RuntimeEnvOptions) error {
-			opts.PyModules = []string{"gcs://path/to/mod1.zip", "s3://bucket/mod2.whl"}
+			opts.PyModules = []string{"gcs://path/to/mod1.zip", "https://s3.example.com/bucket/mod2.whl"}
 			opts.WorkingDir = "gcs://path/to/workspace.zip"
 			opts.Validate = false
 			return nil

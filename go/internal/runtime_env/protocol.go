@@ -7,7 +7,7 @@
 //  http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS" BASIS,
+// distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
@@ -56,9 +56,12 @@ const (
 // ProtocolsProvider provides the supported protocols.
 type ProtocolsProvider struct{}
 
-// GetProtocols returns all supported protocols.
+// GetProtocols returns all supported protocols. Cloud storage protocols
+// (s3/gs/azure/abfss) are only advertised when their handlers are compiled
+// in (the gotags=cloud build); advertising a protocol whose downloads always
+// fail would make validation accept URIs that cannot be fetched.
 func GetProtocols() []Protocol {
-	return []Protocol{
+	protocols := []Protocol{
 		// For packages dynamically uploaded and managed by the GCS.
 		ProtocolGCS,
 		// For conda environments installed locally on each node.
@@ -69,30 +72,20 @@ func GetProtocols() []Protocol {
 		ProtocolUv,
 		// Remote https path, assumes everything packed in one zip file.
 		ProtocolHTTPS,
-		// Remote s3 path, assumes everything packed in one zip file.
-		ProtocolS3,
-		// Remote google storage path, assumes everything packed in one zip file.
-		ProtocolGS,
-		// Remote azure blob storage path, assumes everything packed in one zip file.
-		ProtocolAzure,
-		// Remote Azure Blob File System Secure path, assumes everything packed in one zip file.
-		ProtocolABFSS,
 		// File storage path, assumes everything packed in one zip file.
 		ProtocolFile,
 	}
+	return append(protocols, cloudProtocols()...)
 }
 
 // GetRemoteProtocols returns all remote storage protocols.
 // These protocols should only be used with paths that end in ".zip" or ".whl"
 func GetRemoteProtocols() []Protocol {
-	return []Protocol{
+	protocols := []Protocol{
 		ProtocolHTTPS,
-		ProtocolS3,
-		ProtocolGS,
-		ProtocolAzure,
-		ProtocolABFSS,
 		ProtocolFile,
 	}
+	return append(protocols, cloudProtocols()...)
 }
 
 // IsRemoteProtocol reports whether the protocol is a remote protocol.

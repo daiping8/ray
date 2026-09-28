@@ -7,7 +7,7 @@
 //  http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS" BASIS,
+// distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
@@ -58,18 +58,18 @@ func TestProtocolConstants(t *testing.T) {
 func TestGetProtocols(t *testing.T) {
 	protocols := GetProtocols()
 
-	expectedProtocols := []Protocol{
+	// The base protocols are always advertised, in declaration order. Cloud
+	// protocols (s3/gs/azure/abfss) are appended only when their handlers are
+	// compiled in (the "cloud" build tag), so expectedProtocols mirrors
+	// GetProtocols' base-then-cloud ordering in every build.
+	expectedProtocols := append([]Protocol{
 		ProtocolGCS,
 		ProtocolConda,
 		ProtocolPip,
 		ProtocolUv,
 		ProtocolHTTPS,
-		ProtocolS3,
-		ProtocolGS,
-		ProtocolAzure,
-		ProtocolABFSS,
 		ProtocolFile,
-	}
+	}, cloudProtocols()...)
 
 	if len(protocols) != len(expectedProtocols) {
 		t.Errorf("expected %d protocols, got %d", len(expectedProtocols), len(protocols))
@@ -91,14 +91,10 @@ func TestGetProtocols(t *testing.T) {
 func TestGetRemoteProtocols(t *testing.T) {
 	remoteProtocols := GetRemoteProtocols()
 
-	expectedRemoteProtocols := []Protocol{
+	expectedRemoteProtocols := append([]Protocol{
 		ProtocolHTTPS,
-		ProtocolS3,
-		ProtocolGS,
-		ProtocolAzure,
-		ProtocolABFSS,
 		ProtocolFile,
-	}
+	}, cloudProtocols()...)
 
 	if len(remoteProtocols) != len(expectedRemoteProtocols) {
 		t.Errorf("expected %d remote protocols, got %d", len(expectedRemoteProtocols), len(remoteProtocols))
@@ -118,16 +114,7 @@ func TestGetRemoteProtocols(t *testing.T) {
 // ============ IsRemoteProtocol tests ============
 
 func TestIsRemoteProtocol_True(t *testing.T) {
-	remoteProtocols := []Protocol{
-		ProtocolHTTPS,
-		ProtocolS3,
-		ProtocolGS,
-		ProtocolAzure,
-		ProtocolABFSS,
-		ProtocolFile,
-	}
-
-	for _, protocol := range remoteProtocols {
+	for _, protocol := range GetRemoteProtocols() {
 		t.Run(string(protocol), func(t *testing.T) {
 			if !IsRemoteProtocol(protocol) {
 				t.Errorf("IsRemoteProtocol(%q) should return true", protocol)
@@ -150,6 +137,26 @@ func TestIsRemoteProtocol_False(t *testing.T) {
 				t.Errorf("IsRemoteProtocol(%q) should return false", protocol)
 			}
 		})
+	}
+}
+
+// TestDefaultBuildDoesNotAdvertiseCloudProtocols guards the F7 invariant:
+// in a build without the "cloud" tag the cloud download handlers are stubs
+// that always fail, so their protocols must not be advertised by
+// GetProtocols/GetRemoteProtocols nor pass URI validation.
+func TestDefaultBuildDoesNotAdvertiseCloudProtocols(t *testing.T) {
+	cloud := []Protocol{ProtocolS3, ProtocolGS, ProtocolAzure, ProtocolABFSS}
+	if len(cloudProtocols()) != 0 {
+		t.Skip("cloud build: cloud protocols are advertized by design")
+	}
+
+	for _, protocol := range cloud {
+		if IsRemoteProtocol(protocol) {
+			t.Errorf("IsRemoteProtocol(%q) should be false without cloud handlers", protocol)
+		}
+		if isValidProtocol(protocol) {
+			t.Errorf("isValidProtocol(%q) should be false without cloud handlers", protocol)
+		}
 	}
 }
 

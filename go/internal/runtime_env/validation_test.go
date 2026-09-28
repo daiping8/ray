@@ -7,7 +7,7 @@
 //  http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS" BASIS,
+// distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
@@ -68,7 +68,7 @@ func TestValidateURI(t *testing.T) {
 	})
 
 	t.Run("valid remote whl URI", func(t *testing.T) {
-		err := validateURI("s3://bucket/file.whl")
+		err := validateURI("https://s3.example.com/bucket/file.whl")
 		assert.NoError(t, err)
 	})
 
@@ -130,7 +130,7 @@ func TestValidatePyModulesURIs(t *testing.T) {
 	t.Run("valid list of URIs", func(t *testing.T) {
 		pyModules := []string{
 			"gcs://path/to/module.zip",
-			"s3://bucket/package.whl",
+			"https://s3.example.com/bucket/package.whl",
 		}
 		err := validatePyModulesURIs(pyModules)
 		assert.NoError(t, err)
@@ -1082,7 +1082,7 @@ func TestValidateURIEedgeCases(t *testing.T) {
 	})
 
 	t.Run("s3 URI with .zip extension", func(t *testing.T) {
-		err := validateURI("s3://bucket/file.zip")
+		err := validateURI("https://s3.example.com/bucket/file.zip")
 		assert.NoError(t, err)
 	})
 
@@ -1187,7 +1187,7 @@ func TestParseAndValidatePyModulesEdgeCases(t *testing.T) {
 	t.Run("list with only URIs", func(t *testing.T) {
 		pyModules := []string{
 			"gcs://module1.zip",
-			"s3://module2.whl",
+			"https://s3.example.com/module2.whl",
 			"https://example.com/module3.zip",
 		}
 		result, err := parseAndValidatePyModules(pyModules)
@@ -1535,7 +1535,7 @@ func TestCrossPlatformCompatibility(t *testing.T) {
 		// URIs should validate the same way on all platforms
 		uris := []string{
 			"gcs://bucket/file.zip",
-			"s3://bucket/file.whl",
+			"https://s3.example.com/bucket/file.whl",
 			"https://example.com/file.zip",
 		}
 

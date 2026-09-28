@@ -1981,6 +1981,8 @@ def start_raylet(
             backup_count,
             log_dir,
             temp_dir,
+            session_dir,
+            node_id,
             runtime_env_agent_stdout_filepath,
             runtime_env_agent_stderr_filepath,
         )
@@ -2312,6 +2314,8 @@ def build_go_runtime_env_agent_command(
     backup_count: int,
     log_dir: str,
     temp_dir: str,
+    session_dir: str,
+    node_id: str,
     runtime_env_agent_stdout_filepath: Optional[str] = None,
     runtime_env_agent_stderr_filepath: Optional[str] = None,
 ):
@@ -2327,6 +2331,8 @@ def build_go_runtime_env_agent_command(
         f"--logging-rotate-backup-count={backup_count}",
         f"--log-dir={log_dir}",
         f"--temp-dir={temp_dir}",
+        f"--session-dir={session_dir}",
+        f"--node-id={node_id}",
         f"--python-executable={sys.executable}",
     ]
     if runtime_env_agent_stdout_filepath:

@@ -17,6 +17,7 @@ package runtime_env
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/ray-project/ray/go/pkg/gcs"
@@ -420,14 +421,11 @@ func TestInternalKVExists_NoClient(t *testing.T) {
 
 // ============ PinRuntimeEnvURICall tests ============
 
-func TestPinRuntimeEnvURICall_Success(t *testing.T) {
+func TestPinRuntimeEnvURICall_NotImplemented(t *testing.T) {
 	defer InternalKVReset()
 
 	mockClient := &MockGCSClient{
 		PinURIFunc: func(ctx context.Context, uri string, expirationS int) error {
-			if uri != "test-uri" || expirationS != 3600 {
-				t.Errorf("unexpected uri or expiration: uri=%s, expirationS=%d", uri, expirationS)
-			}
 			return nil
 		},
 	}
@@ -436,8 +434,15 @@ func TestPinRuntimeEnvURICall_Success(t *testing.T) {
 	ctx := context.Background()
 	err := PinRuntimeEnvURICall(ctx, "test-uri", 3600)
 
-	if err != nil {
-		t.Errorf("expected no error, got %v", err)
+	// The gcs.Client interface exposes no pin method, so the bridge cannot yet
+	// acquire a pin. It must report the gap instead of pretending success:
+	// a nil error here would let the GCS runtime-env garbage collector delete
+	// an uploaded package another node still references.
+	if err == nil {
+		t.Error("expected pin call to report the unimplemented bridge, got nil")
+	}
+	if !strings.Contains(err.Error(), "not implemented by the GCS bridge") {
+		t.Errorf("expected 'not implemented by the GCS bridge' error, got %v", err)
 	}
 }
 

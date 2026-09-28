@@ -7,7 +7,7 @@
 //  http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS" BASIS,
+// distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
@@ -53,7 +53,7 @@ func TestJavaJarsPlugin_Validate_Empty(t *testing.T) {
 func TestJavaJarsPlugin_Validate_ValidArray(t *testing.T) {
 	plugin := &JavaJarsPlugin{}
 	runtimeEnv := &RuntimeEnv{
-		"java_jars": []string{"s3://bucket/file.jar", "gcs://bucket/another.jar"},
+		"java_jars": []string{"https://s3.example.com/bucket/file.jar", "gcs://bucket/another.jar"},
 	}
 
 	err := plugin.Validate(runtimeEnv)
@@ -67,7 +67,7 @@ func TestJavaJarsPlugin_Validate_ValidArray(t *testing.T) {
 func TestJavaJarsPlugin_Validate_ValidInterfaceArray(t *testing.T) {
 	plugin := &JavaJarsPlugin{}
 	runtimeEnv := &RuntimeEnv{
-		"java_jars": []interface{}{"s3://bucket/file.jar", "gcs://bucket/another.jar"},
+		"java_jars": []interface{}{"https://s3.example.com/bucket/file.jar", "gcs://bucket/another.jar"},
 	}
 
 	err := plugin.Validate(runtimeEnv)
@@ -117,7 +117,7 @@ func TestJavaJarsPlugin_GetURIs_Empty(t *testing.T) {
 // TestJavaJarsPlugin_GetURIs_WithURIs tests GetURIs.
 func TestJavaJarsPlugin_GetURIs_WithURIs(t *testing.T) {
 	plugin := &JavaJarsPlugin{}
-	expectedURIs := []string{"s3://bucket/file1.jar", "gcs://bucket/file2.jar"}
+	expectedURIs := []string{"https://s3.example.com/bucket/file1.jar", "gcs://bucket/file2.jar"}
 	runtimeEnv := &RuntimeEnv{
 		"java_jars": expectedURIs,
 	}
@@ -285,11 +285,11 @@ func TestIsJarURI(t *testing.T) {
 		uri      string
 		expected bool
 	}{
-		{"s3://bucket/file.jar", true},
+		{"https://s3.example.com/bucket/file.jar", true},
 		{"gcs://bucket/file.JAR", true},
 		{"https://example.com/lib.Jar", true},
 		{"file:///path/to/file.jar", true},
-		{"s3://bucket/file.zip", false},
+		{"https://s3.example.com/bucket/file.zip", false},
 		{"gcs://bucket/file.txt", false},
 		{"", false},
 	}
@@ -309,7 +309,7 @@ func TestJavaJarsPlugin_needsRemoteDownload(t *testing.T) {
 		expected bool
 	}{
 		{"gcs://bucket/file.jar", true},
-		{"s3://bucket/file.jar", true},
+		{"https://s3.example.com/bucket/file.jar", true},
 		{"https://example.com/file.jar", true},
 		{"http://example.com/file.jar", true},
 		{"/local/path/file.jar", false},

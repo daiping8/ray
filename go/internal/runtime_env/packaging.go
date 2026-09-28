@@ -604,17 +604,20 @@ func UnzipPackage(
 			if err != nil {
 				return err
 			}
-			defer srcFile.Close()
 
 			dstFile, err := os.Create(memberPath)
 			if err != nil {
+				srcFile.Close()
 				return err
 			}
-			defer dstFile.Close()
 
 			if _, err := io.Copy(dstFile, srcFile); err != nil {
+				srcFile.Close()
+				dstFile.Close()
 				return err
 			}
+			srcFile.Close()
+			dstFile.Close()
 
 			// Preserve the file permissions.
 			if member.ExternalAttrs != 0 {

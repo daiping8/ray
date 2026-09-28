@@ -77,7 +77,10 @@ func PinRuntimeEnvURICall(ctx context.Context, uri string, expirationS int) erro
 	}
 
 	// The GCS client's PinRuntimeEnvURI method is not implemented yet.
-	return nil
+	// Report the gap instead of pretending success: callers treat a nil
+	// error as having acquired the pin, which leaves uploaded packages
+	// exposed to the GCS runtime-env garbage collector.
+	return fmt.Errorf("PinRuntimeEnvURI is not implemented by the GCS bridge")
 }
 
 // InternalKVPut puts a value under the given key and namespace, returning

@@ -7,7 +7,7 @@
 //  http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS" BASIS,
+// distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
@@ -23,6 +23,36 @@ import (
 	"testing"
 	"time"
 )
+
+// TestOperationProtocolsAdvertised verifies that the cloud build advertises
+// exactly the cloud protocols whose handlers are compiled in, so GetProtocols
+// and URI validation accept every downloadable protocol.
+func TestOperationProtocolsAdvertised(t *testing.T) {
+	expected := []Protocol{ProtocolS3, ProtocolGS, ProtocolAzure, ProtocolABFSS}
+
+	got := cloudProtocols()
+	missing := make(map[Protocol]bool)
+	for _, p := range expected {
+		missing[p] = true
+	}
+	for _, p := range got {
+		if missing[p] {
+			delete(missing, p)
+		}
+	}
+	for p := range missing {
+		t.Errorf("cloudProtocols() missing %q", p)
+	}
+
+	for _, p := range expected {
+		if !IsRemoteProtocol(p) {
+			t.Errorf("IsRemoteProtocol(%q) should be true in the cloud build", p)
+		}
+	}
+	if !isValidProtocol(ProtocolS3) || !isValidProtocol(ProtocolAzure) {
+		t.Error("cloud protocols should pass validation in the cloud build")
+	}
+}
 
 // TestNewDownloader_S3HandlerCache verifies that the S3 handler registered by
 // NewDownloader owns an initialized client cache.

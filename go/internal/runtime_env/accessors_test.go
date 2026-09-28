@@ -83,12 +83,12 @@ func TestRuntimeEnv_GetAndHas(t *testing.T) {
 func TestRuntimeEnv_ToDict(t *testing.T) {
 	t.Run("ToDict returns map representation", func(t *testing.T) {
 		env, _ := NewRuntimeEnv(func(opts *RuntimeEnvOptions) error {
-			opts.PyModules = []string{"gcs://path/to/module.zip", "s3://bucket/package.whl"}
+			opts.PyModules = []string{"gcs://path/to/module.zip", "https://s3.example.com/bucket/package.whl"}
 			opts.EnvVars = map[string]string{"KEY": "value"}
 			return nil
 		}, WithValidate(false))
 		dict := env.ToDict()
-		assert.Equal(t, []string{"gcs://path/to/module.zip", "s3://bucket/package.whl"}, dict["py_modules"])
+		assert.Equal(t, []string{"gcs://path/to/module.zip", "https://s3.example.com/bucket/package.whl"}, dict["py_modules"])
 		assert.Equal(t, map[string]string{"KEY": "value"}, dict["env_vars"])
 	})
 
@@ -176,11 +176,11 @@ func TestRuntimeEnv_ContainerMethods(t *testing.T) {
 func TestRuntimeEnv_OtherMethods(t *testing.T) {
 	t.Run("PyModulesURIs returns modules", func(t *testing.T) {
 		env, _ := NewRuntimeEnv(func(opts *RuntimeEnvOptions) error {
-			opts.PyModules = []string{"gcs://path/to/module.zip", "s3://bucket/package.whl"}
+			opts.PyModules = []string{"gcs://path/to/module.zip", "https://s3.example.com/bucket/package.whl"}
 			return nil
 		})
 		uris := env.PyModulesURIs()
-		assert.Equal(t, []string{"gcs://path/to/module.zip", "s3://bucket/package.whl"}, uris)
+		assert.Equal(t, []string{"gcs://path/to/module.zip", "https://s3.example.com/bucket/package.whl"}, uris)
 	})
 
 	t.Run("PluginURIs always returns empty", func(t *testing.T) {

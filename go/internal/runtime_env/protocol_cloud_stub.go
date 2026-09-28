@@ -7,7 +7,7 @@
 //  http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS" BASIS,
+// distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
@@ -84,4 +84,11 @@ func (h *abfssProtocolHandler) Match(protocol Protocol) bool {
 
 func (h *abfssProtocolHandler) Download(ctx context.Context, sourceURI string, destWriter io.Writer, opts *DownloadOptions) error {
 	return fmt.Errorf("abfss protocol support is not compiled in (build without the cloud build tag; rebuild with --define gotags=cloud or go build -tags cloud)")
+}
+
+// cloudProtocols returns the protocols whose download handlers are compiled
+// into this build: none in the default build, so GetProtocols and
+// validation do not advertise downloads that can only fail.
+func cloudProtocols() []Protocol {
+	return nil
 }

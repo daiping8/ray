@@ -52,6 +52,11 @@ type CreatedEnvResult struct {
 }
 
 type ReferenceTable struct {
+	// refsMu serializes the read-modify-write sequences on the two maps
+	// below. sync.Map only makes single operations atomic; the Load-then-
+	// Store counting pattern loses updates under concurrency, and a lost
+	// decrement can drop a runtime env that a second holder still uses.
+	refsMu                   sync.Mutex
 	runtimeEnvRefs           sync.Map
 	uriRef                   sync.Map
 	urisParser               func(*runtime_env.RuntimeEnv) []URIWithType
@@ -83,6 +88,9 @@ func (rt *ReferenceTable) IncreaseReference(
 		return
 	}
 
+	rt.refsMu.Lock()
+	defer rt.refsMu.Unlock()
+
 	if count, _ := rt.runtimeEnvRefs.Load(serializedEnv); count != nil {
 		rt.runtimeEnvRefs.Store(serializedEnv, count.(int)+1)
 	} else {
@@ -107,6 +115,9 @@ func (rt *ReferenceTable) DecreaseReference(
 	if _, excluded := rt.excludeSources[sourceProcess]; excluded {
 		return nil
 	}
+
+	rt.refsMu.Lock()
+	defer rt.refsMu.Unlock()
 
 	var refCount int
 	if count, exists := rt.runtimeEnvRefs.Load(serializedEnv); exists && count.(int) > 0 {

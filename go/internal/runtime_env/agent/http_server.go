@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 
 	"google.golang.org/protobuf/proto"
@@ -29,6 +30,12 @@ import (
 type HTTPServer struct {
 	server  *http.Server
 	service RuntimeEnvAgentServiceInterface
+	// OnBound, when set, is invoked with the actually bound port right
+	// after the listener is created. The raylet discovers this agent by
+	// waiting for the port to be persisted to the session directory
+	// (WaitForPersistedPort), so a port of 0 (OS-assigned) must be
+	// reported back through this callback.
+	OnBound func(port int)
 }
 
 // RuntimeEnvAgentServiceInterface is the service interface exposed by the agent.
@@ -122,10 +129,21 @@ func NewHTTPServer(addr string, service RuntimeEnvAgentServiceInterface) *HTTPSe
 
 // Start runs the HTTP server.
 func (s *HTTPServer) Start(ctx context.Context) error {
+	// Bind explicitly so the actually bound port is known: with
+	// --runtime-env-agent-port=0 the OS assigns one, and the raylet can only
+	// discover this agent after the port is persisted (see OnBound).
+	listener, err := net.Listen("tcp", s.server.Addr)
+	if err != nil {
+		return fmt.Errorf("failed to bind %s: %w", s.server.Addr, err)
+	}
+	if s.OnBound != nil {
+		s.OnBound(listener.Addr().(*net.TCPAddr).Port)
+	}
+
 	// Serve in a goroutine.
 	errChan := make(chan error, 1)
 	go func() {
-		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			errChan <- err
 		}
 		close(errChan)
