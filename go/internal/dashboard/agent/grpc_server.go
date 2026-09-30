@@ -17,6 +17,7 @@ package agent
 import (
 	"fmt"
 	"net"
+	"time"
 
 	"google.golang.org/grpc"
 )
@@ -24,6 +25,13 @@ import (
 // grpcMaxMessageSize caps both outgoing and incoming gRPC messages handled by
 // the dashboard agent, aligned with the C++ dashboard agent limit of 16 MiB.
 const grpcMaxMessageSize = 16 << 20 // 16 MiB
+
+// grpcStopTimeout bounds the graceful drain of in-flight RPCs on shutdown.
+// The agent hosts long-lived server streams (e.g. StreamLog with keep_alive),
+// which would otherwise hold GracefulStop open indefinitely; the Python agent
+// exits immediately on SIGTERM with no graceful drain at all, so a short
+// bounded drain followed by a hard stop matches that contract closely enough.
+const grpcStopTimeout = 5 * time.Second
 
 // grpcServer wraps the dashboard agent gRPC server and its service registration.
 type grpcServer struct {
@@ -55,7 +63,17 @@ func (s *grpcServer) serve() error {
 	return s.server.Serve(s.listener)
 }
 
-// stop gracefully stops the gRPC server.
+// stop drains in-flight RPCs for at most grpcStopTimeout, then force-stops
+// the server so shutdown cannot hang on a long-lived stream.
 func (s *grpcServer) stop() {
-	s.server.GracefulStop()
+	done := make(chan struct{})
+	go func() {
+		s.server.GracefulStop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(grpcStopTimeout):
+		s.server.Stop()
+	}
 }
