@@ -17,8 +17,10 @@ package agent
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/ray-project/ray/go/pkg/gcs"
 	"github.com/ray-project/ray/go/pkg/ids"
@@ -97,5 +99,61 @@ func TestRunStartsAllModules(t *testing.T) {
 	}
 	if !m1.started || !m2.started {
 		t.Errorf("Run did not start both modules: m1=%v m2=%v", m1.started, m2.started)
+	}
+}
+
+// TestNewHTTPServerBindsBeforeServe verifies the listen socket is bound by
+// the constructor, so the socket accepts connections before the agent
+// publishes its address in GCS.
+func TestNewHTTPServerBindsBeforeServe(t *testing.T) {
+	httpSrv, err := newHTTPServer(Config{NodeIP: "127.0.0.1", ListenPort: 0}, []Module{&stubModule{}})
+	if err != nil {
+		t.Fatalf("newHTTPServer: %v", err)
+	}
+	conn, err := net.Dial("tcp", httpSrv.listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial bound listener before serve: %v", err)
+	}
+	conn.Close()
+}
+
+// TestRunDegradesWhenHTTPPortTaken verifies the Python parity contract for an
+// HTTP bind failure: the agent stays alive (Run returns nil on cancellation),
+// the address is not registered in GCS, and module startup still proceeds.
+func TestRunDegradesWhenHTTPPortTaken(t *testing.T) {
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("occupy port: %v", err)
+	}
+	defer lis.Close()
+	port := lis.Addr().(*net.TCPAddr).Port
+
+	fake := &fakeKVClient{}
+	mod := &stubModule{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Config{
+			NodeIP:     "127.0.0.1",
+			ListenPort: port,
+			GCS:        fake,
+		}, []Module{mod})
+	}()
+
+	// Give Run time to fail the HTTP bind and reach the serving state.
+	time.Sleep(200 * time.Millisecond)
+	if keys := fake.kv[KVNamespaceDashboard]; len(keys) != 0 {
+		t.Errorf("agent address registered despite HTTP bind failure: %v", keys)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run = %v, want nil (degraded, not failed)", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after cancellation")
 	}
 }

@@ -75,11 +75,19 @@ type Module interface {
 
 // Run owns the HTTP/gRPC server lifecycle: it builds both servers from the
 // registered modules, starts every module, publishes the agent address in GCS
-// InternalKV, then serves HTTP and gRPC until ctx is cancelled.
+// InternalKV, then serves HTTP and gRPC until ctx is cancelled. An HTTP bind
+// failure degrades instead of killing the agent (mirroring Python
+// agent.py, which stays alive with the HTTP service disabled and skips the
+// KV registration); a gRPC bind failure remains fatal.
 func Run(ctx context.Context, cfg Config, mods []Module) error {
-	httpSrv, err := newHTTPServer(cfg, mods)
-	if err != nil {
-		return fmt.Errorf("create HTTP server: %w", err)
+	httpSrv, httpErr := newHTTPServer(cfg, mods)
+	if httpErr != nil {
+		// Python keeps the agent alive with the HTTP service disabled in this
+		// case and does not publish its address, because every head-side
+		// consumer reaches the agent through that registration.
+		log.Log.Error(httpErr, "failed to start HTTP server; " +
+			"the agent will stay alive but the HTTP service will be disabled")
+		httpSrv = nil
 	}
 	grpcSrv, err := newGRPCServer(cfg, mods)
 	if err != nil {
@@ -94,12 +102,16 @@ func Run(ctx context.Context, cfg Config, mods []Module) error {
 		}
 	}
 
-	if err := registerAgentToGCS(ctx, cfg, cfg.GRPCPort, cfg.ListenPort); err != nil {
-		return fmt.Errorf("register agent to GCS: %w", err)
+	if httpSrv != nil {
+		if err := registerAgentToGCS(ctx, cfg, cfg.GRPCPort, cfg.ListenPort); err != nil {
+			return fmt.Errorf("register agent to GCS: %w", err)
+		}
 	}
 
 	errCh := make(chan error, 2)
-	go func() { errCh <- httpSrv.serve() }()
+	if httpSrv != nil {
+		go func() { errCh <- httpSrv.serve() }()
+	}
 	go func() { errCh <- grpcSrv.serve() }()
 
 	select {
@@ -116,10 +128,13 @@ func Run(ctx context.Context, cfg Config, mods []Module) error {
 	}
 }
 
-// shutdownServers gracefully shuts down both servers, best-effort.
+// shutdownServers gracefully shuts down both servers, best-effort. httpSrv is
+// nil when the HTTP server degraded at startup and there is nothing to stop.
 func shutdownServers(httpSrv *httpServer, grpcSrv *grpcServer) {
-	if err := httpSrv.shutdown(context.Background()); err != nil {
-		log.Log.Error(err, "failed to shut down HTTP server")
+	if httpSrv != nil {
+		if err := httpSrv.shutdown(context.Background()); err != nil {
+			log.Log.Error(err, "failed to shut down HTTP server")
+		}
 	}
 	grpcSrv.stop()
 }
