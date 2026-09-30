@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ray-project/ray/go/internal/common"
 	"github.com/ray-project/ray/go/internal/dashboard/agent"
@@ -190,27 +191,56 @@ func buildConfig() (*agent.Config, error) {
 	}, nil
 }
 
+// is_head lookup retry parameters, mirroring the Python agent's
+// call_with_retry(description="get self node info", max_attempts=30,
+// max_backoff_s=1): both RPC errors and a node missing from the node table
+// are retried, tolerating the startup race where the agent comes up before
+// raylet has registered the node.
+const (
+	isHeadRetryAttempts = 30
+	isHeadRetryInterval = time.Second
+)
+
 // resolveIsHead reports whether this node is the head node by looking up its
 // own node info in GCS, mirroring the Python agent
 // (python/ray/dashboard/agent.py: _fetch_node_info sets is_head from
 // GcsNodeInfo.is_head_node). A nil node id or a lookup failure leaves isHead
 // false so the agent errs on the side of not probing GCS on non-head nodes.
 func resolveIsHead(ctx context.Context, gcsClient gcs.Client, nodeID ids.NodeID) (bool, error) {
+	return resolveIsHeadRetry(ctx, gcsClient, nodeID, isHeadRetryAttempts, isHeadRetryInterval)
+}
+
+// resolveIsHeadRetry is resolveIsHead with injectable retry parameters. Like
+// the Python call_with_retry wrapper, it retries both RPC errors and a node
+// missing from the node table (a not-found is not an RPC error, so the
+// underlying RPC-level retry cannot cover it).
+func resolveIsHeadRetry(ctx context.Context, gcsClient gcs.Client, nodeID ids.NodeID, attempts int, interval time.Duration) (bool, error) {
 	// The Python agent derives is_head from its own node id; a freshly
 	// generated id (no --node-id-hex) can never be found, so we only look up
 	// an explicitly provided node id.
 	if nodeID.IsNil() {
 		return false, nil
 	}
-	nodes, err := gcsClient.GetAll(ctx, []ids.NodeID{nodeID})
-	if err != nil {
-		return false, fmt.Errorf("failed to fetch node info for is_head: %w", err)
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		nodes, err := gcsClient.GetAll(ctx, []ids.NodeID{nodeID})
+		if err == nil {
+			if nodeInfo, ok := nodes[nodeID]; ok {
+				return nodeInfo.GetIsHeadNode(), nil
+			}
+			lastErr = fmt.Errorf("node %s not found in node table, cannot determine is_head", nodeID.Hex())
+		} else {
+			lastErr = fmt.Errorf("failed to fetch node info for is_head: %w", err)
+		}
+		if attempt < attempts-1 {
+			select {
+			case <-ctx.Done():
+				return false, lastErr
+			case <-time.After(interval):
+			}
+		}
 	}
-	nodeInfo, ok := nodes[nodeID]
-	if !ok {
-		return false, fmt.Errorf("node %s not found in node table, cannot determine is_head", nodeID.Hex())
-	}
-	return nodeInfo.GetIsHeadNode(), nil
+	return false, lastErr
 }
 
 // runDashboardAgent sets up logging, connects to GCS, builds the agent

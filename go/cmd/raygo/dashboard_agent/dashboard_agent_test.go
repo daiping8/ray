@@ -19,6 +19,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ray-project/ray/go/internal/dashboard/agent"
 	"github.com/ray-project/ray/go/internal/dashboard/healthz"
@@ -171,11 +172,19 @@ type buildModulesFakeGCS struct {
 	gcs.Client
 	isHead bool
 	err    error
+	// failFirst makes the first N GetAll calls return an error before the
+	// normal behavior kicks in, exercising the is_head retry loop.
+	failFirst int
+	calls     int
 }
 
 // GetAll fakes the node table lookup used by resolveIsHead: it returns a fake
 // node info for every requested id, carrying the configured is_head flag.
 func (f *buildModulesFakeGCS) GetAll(_ context.Context, nodeIDs []ids.NodeID) (map[ids.NodeID]*proto.GcsNodeInfo, error) {
+	if f.failFirst > 0 && f.calls < f.failFirst {
+		f.calls++
+		return nil, errors.New("gcs unreachable")
+	}
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -252,10 +261,23 @@ func TestResolveIsHead(t *testing.T) {
 		}
 	})
 
-	t.Run("gcs error is propagated", func(t *testing.T) {
+	t.Run("gcs error is propagated after retries", func(t *testing.T) {
 		fake := &buildModulesFakeGCS{err: errors.New("gcs unreachable")}
-		if _, err := resolveIsHead(ctx, fake, nodeID); err == nil {
-			t.Fatal("resolveIsHead = nil error, want error when GCS lookup fails")
+		if _, err := resolveIsHeadRetry(ctx, fake, nodeID, 2, time.Millisecond); err == nil {
+			t.Fatal("resolveIsHeadRetry = nil error, want error when GCS lookup keeps failing")
+		}
+	})
+
+	t.Run("recovers from transient gcs failures", func(t *testing.T) {
+		// Mirrors the startup race the Python agent tolerates with
+		// call_with_retry: the node may not be in the table yet.
+		fake := &buildModulesFakeGCS{isHead: true, failFirst: 3}
+		got, err := resolveIsHeadRetry(ctx, fake, nodeID, 5, time.Millisecond)
+		if err != nil {
+			t.Fatalf("resolveIsHeadRetry: %v", err)
+		}
+		if !got {
+			t.Error("resolveIsHeadRetry = false, want true once the lookup succeeds")
 		}
 	})
 }
