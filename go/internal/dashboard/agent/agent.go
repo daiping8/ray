@@ -126,17 +126,28 @@ func shutdownServers(httpSrv *httpServer, grpcSrv *grpcServer) {
 
 // registerAgentToGCS publishes this agent's HTTP and gRPC addresses in GCS
 // InternalKV under the dashboard namespace, mirroring the Python
-// _async_register_agent_to_gcs helper. The value is a JSON array of the form
-// ["ip", listen_port, grpc_port].
+// _async_register_agent_to_gcs helper. The two keys are not interchangeable:
+// the node-id key maps to [ip, listen_port, grpc_port] while the ip key maps
+// to [node_id, listen_port, grpc_port] — head-side consumers resolve one
+// missing field through the other key (e.g. the dashboard head's log module
+// reads vals[0] of the ip-keyed value as a node id).
 func registerAgentToGCS(ctx context.Context, cfg Config, grpcPort, listenPort int) error {
-	addrJSON := fmt.Sprintf("[%q, %d, %d]", cfg.NodeIP, listenPort, grpcPort)
-	keys := []string{
-		DASHBOARD_AGENT_ADDR_NODE_ID_PREFIX + cfg.NodeID.Hex(),
-		DASHBOARD_AGENT_ADDR_IP_PREFIX + cfg.NodeIP,
+	entries := []struct {
+		key   string
+		value string
+	}{
+		{
+			key:   DASHBOARD_AGENT_ADDR_NODE_ID_PREFIX + cfg.NodeID.Hex(),
+			value: fmt.Sprintf("[%q, %d, %d]", cfg.NodeIP, listenPort, grpcPort),
+		},
+		{
+			key:   DASHBOARD_AGENT_ADDR_IP_PREFIX + cfg.NodeIP,
+			value: fmt.Sprintf("[%q, %d, %d]", cfg.NodeID.Hex(), listenPort, grpcPort),
+		},
 	}
-	for _, k := range keys {
-		if _, err := cfg.GCS.Put(ctx, KVNamespaceDashboard, k, []byte(addrJSON), true); err != nil {
-			return fmt.Errorf("failed to register agent address at key %s: %w", k, err)
+	for _, e := range entries {
+		if _, err := cfg.GCS.Put(ctx, KVNamespaceDashboard, e.key, []byte(e.value), true); err != nil {
+			return fmt.Errorf("failed to register agent address at key %s: %w", e.key, err)
 		}
 	}
 	return nil

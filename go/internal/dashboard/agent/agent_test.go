@@ -16,6 +16,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -74,11 +75,15 @@ func TestRegisterAgentToGCS(t *testing.T) {
 	if err := registerAgentToGCS(context.Background(), cfg, 8888, 8080); err != nil {
 		t.Fatalf("registerAgentToGCS: %v", err)
 	}
-	want := `["1.2.3.4", 8080, 8888]`
-	if got := string(fake.kv[KVNamespaceDashboard][DASHBOARD_AGENT_ADDR_NODE_ID_PREFIX+cfg.NodeID.Hex()]); got != want {
+	// The two keys carry different shapes, mirroring Python agent.py:
+	// NODE_ID_PREFIX:<id> -> [ip, http, grpc], IP_PREFIX:<ip> -> [id, http, grpc].
+	// Head-side consumers resolve the missing field through the other key —
+	// e.g. the dashboard head's log module reads vals[0] of the ip-keyed value
+	// as a node id, so that slot must never carry the ip.
+	if got, want := string(fake.kv[KVNamespaceDashboard][DASHBOARD_AGENT_ADDR_NODE_ID_PREFIX+cfg.NodeID.Hex()]), `["1.2.3.4", 8080, 8888]`; got != want {
 		t.Errorf("node-id key value = %q, want %q", got, want)
 	}
-	if got := string(fake.kv[KVNamespaceDashboard][DASHBOARD_AGENT_ADDR_IP_PREFIX+"1.2.3.4"]); got != want {
+	if got, want := string(fake.kv[KVNamespaceDashboard][DASHBOARD_AGENT_ADDR_IP_PREFIX+"1.2.3.4"]), fmt.Sprintf("[%q, 8080, 8888]", cfg.NodeID.Hex()); got != want {
 		t.Errorf("ip key value = %q, want %q", got, want)
 	}
 }
