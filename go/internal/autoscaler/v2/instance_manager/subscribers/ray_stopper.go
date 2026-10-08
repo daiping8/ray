@@ -155,14 +155,6 @@ func (rs *RayStopper) stopOrDrainRay(event *proto.InstanceUpdateEvent) {
 	rs.stopRayNode(rayNodeID, instanceID)
 }
 
-// drainNodeClient is the optional single-node drain API. The Go cgo bridge
-// does not expose DrainNode yet (the C++ bridge lacks
-// ray_gcs_client_drain_node), so a client implementing it takes the verbatim
-// path below, and any other client falls back to the batch DrainNodes API.
-type drainNodeClient interface {
-	DrainNode(ctx context.Context, nodeID ids.NodeID, reason proto.DrainNodeReason, reasonMessage string, deadlineTimestampMs int64) (bool, string, error)
-}
-
 // drainRayNode drains a single node (with a reason, used for idle
 // termination).
 func (rs *RayStopper) drainRayNode(rayNodeID, instanceID string,
@@ -174,17 +166,7 @@ func (rs *RayStopper) drainRayNode(rayNodeID, instanceID string,
 		return
 	}
 
-	dn, ok := rs.gcsClient.(drainNodeClient)
-	if !ok {
-		// The cgo bridge does not expose the single-node drain API yet; fall
-		// back to the batch drain without the reason/deadline.
-		log.Log.Info("gcs client does not implement DrainNode, falling back to the batch DrainNodes",
-			"rayNodeId", rayNodeID)
-		rs.stopRayNode(rayNodeID, instanceID)
-		return
-	}
-
-	accepted, rejectMsg, err := dn.DrainNode(
+	accepted, rejectMsg, err := rs.gcsClient.DrainNode(
 		context.Background(), nodeID, reason, reasonStr, 0)
 	if err != nil {
 		log.Log.Error(err, "Error draining ray", "rayNodeId", rayNodeID)
