@@ -22,7 +22,7 @@ import (
 	"sync/atomic"
 
 	"github.com/ray-project/ray/go/internal/runtime/base"
-	"github.com/ray-project/ray/go/internal/runtime/objectstore"
+	"github.com/ray-project/ray/go/internal/runtime/localstore"
 	rayerrors "github.com/ray-project/ray/go/pkg/errors"
 	"github.com/ray-project/ray/go/pkg/ids"
 	"github.com/ray-project/ray/go/pkg/log"
@@ -40,7 +40,7 @@ import (
 // 3. Supports actor creation tasks and actor tasks
 // 4. Uses ActorConcurrencyGroupManager for actor task scheduling
 type LocalModeTaskSubmitter struct {
-	objectStore              *objectstore.LocalModeObjectStore
+	objectStore              *localstore.LocalModeObjectStore
 	workerContext            *LocalModeWorkerContext
 	taskExecutor             *LocalModeTaskExecutor
 	functionMgr              *function.FunctionManager
@@ -83,7 +83,7 @@ type taskSpec struct {
 
 // NewLocalModeTaskSubmitter creates a new LocalModeTaskSubmitter.
 func NewLocalModeTaskSubmitter(
-	objectStore *objectstore.LocalModeObjectStore,
+	objectStore *localstore.LocalModeObjectStore,
 	workerContext *LocalModeWorkerContext,
 	taskExecutor *LocalModeTaskExecutor,
 	functionMgr *function.FunctionManager,

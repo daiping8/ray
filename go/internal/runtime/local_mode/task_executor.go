@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ray-project/ray/go/internal/runtime/objectstore"
+	"github.com/ray-project/ray/go/internal/runtime/localstore"
 	"github.com/ray-project/ray/go/pkg/ids"
 	"github.com/ray-project/ray/go/pkg/runtime/function"
 )
@@ -33,7 +33,7 @@ import (
 type LocalModeTaskExecutor struct {
 	functionMgr              *function.FunctionManager
 	actorConcurrencyGroupMgr *ActorConcurrencyGroupManager
-	objectStore              *objectstore.LocalModeObjectStore
+	objectStore              *localstore.LocalModeObjectStore
 	actorContexts            sync.Map // map[ids.ActorID]*LocalActorContext
 	currentActorContext      *LocalActorContext
 	currentActorContextMu    sync.RWMutex
@@ -61,7 +61,7 @@ func (c *LocalActorContext) GetWorkerID() ids.UniqueID {
 func NewLocalModeTaskExecutor(
 	functionMgr *function.FunctionManager,
 	actorConcurrencyGroupMgr *ActorConcurrencyGroupManager,
-	objectStore *objectstore.LocalModeObjectStore,
+	objectStore *localstore.LocalModeObjectStore,
 ) *LocalModeTaskExecutor {
 	return &LocalModeTaskExecutor{
 		functionMgr:              functionMgr,

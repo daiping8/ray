@@ -20,7 +20,7 @@ import (
 
 	rayerrors "github.com/ray-project/ray/go/internal/errors"
 	"github.com/ray-project/ray/go/internal/runtime/base"
-	"github.com/ray-project/ray/go/internal/runtime/objectstore"
+	"github.com/ray-project/ray/go/internal/runtime/localstore"
 	"github.com/ray-project/ray/go/pkg/ids"
 	"github.com/ray-project/ray/go/pkg/runtime/contract"
 	"github.com/ray-project/ray/go/pkg/runtime/function"
@@ -39,7 +39,7 @@ import (
 type LocalModeRuntime struct {
 	opts          base.InitializeOptions
 	initialized   atomic.Bool
-	objectStore   *objectstore.LocalModeObjectStore
+	objectStore   *localstore.LocalModeObjectStore
 	taskSubmitter *LocalModeTaskSubmitter
 	workerContext *LocalModeWorkerContext
 	functionMgr   *function.FunctionManager
@@ -53,7 +53,7 @@ type LocalModeRuntime struct {
 
 // NewLocalModeRuntime creates a new LocalModeRuntime instance.
 func NewLocalModeRuntime(opts base.InitializeOptions) (*LocalModeRuntime, error) {
-	store := objectstore.NewLocalModeObjectStore()
+	store := localstore.NewLocalModeObjectStore()
 	return &LocalModeRuntime{
 		opts:          opts,
 		objectStore:   store,

@@ -31,7 +31,7 @@ go_library(
     deps = [
         "//go/internal/errors",
         "//go/internal/runtime/base",
-        "//go/internal/runtime/objectstore",
+        "//go/internal/runtime/localstore",
         "//go/internal/runtime/serializer",
         "//go/pkg/errors",
         "//go/pkg/ids",
@@ -58,7 +58,7 @@ go_test(
     embed = [":local_mode"],
     deps = [
         "//go/internal/runtime/base",
-        "//go/internal/runtime/objectstore",
+        "//go/internal/runtime/localstore",
         "//go/pkg/ids",
         "//go/pkg/runtime/function",
         "//go/pkg/runtime/object",

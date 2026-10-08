@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ray-project/ray/go/internal/runtime/objectstore"
+	"github.com/ray-project/ray/go/internal/runtime/localstore"
 	"github.com/ray-project/ray/go/pkg/ids"
 	"github.com/ray-project/ray/go/pkg/runtime/function"
 	"github.com/ray-project/ray/go/pkg/runtime/object"
@@ -29,7 +29,7 @@ import (
 
 func TestLocalModeTaskSubmitter(t *testing.T) {
 	t.Run("CreateSubmitter", func(t *testing.T) {
-		objectStore := objectstore.NewLocalModeObjectStore()
+		objectStore := localstore.NewLocalModeObjectStore()
 		workerContext := NewLocalModeWorkerContext()
 		functionMgr := function.NewFunctionManager(nil)
 		actorMgr := NewActorConcurrencyGroupManager()
@@ -39,7 +39,7 @@ func TestLocalModeTaskSubmitter(t *testing.T) {
 	})
 
 	t.Run("SubmitNormalTask", func(t *testing.T) {
-		objectStore := objectstore.NewLocalModeObjectStore()
+		objectStore := localstore.NewLocalModeObjectStore()
 		workerContext := NewLocalModeWorkerContext()
 		functionMgr := function.NewFunctionManager(nil)
 		actorMgr := NewActorConcurrencyGroupManager()
@@ -58,7 +58,7 @@ func TestLocalModeTaskSubmitter(t *testing.T) {
 	})
 
 	t.Run("CreateActor", func(t *testing.T) {
-		objectStore := objectstore.NewLocalModeObjectStore()
+		objectStore := localstore.NewLocalModeObjectStore()
 		workerContext := NewLocalModeWorkerContext()
 		functionMgr := function.NewFunctionManager(nil)
 		actorMgr := NewActorConcurrencyGroupManager()
@@ -80,7 +80,7 @@ func TestLocalModeTaskSubmitter(t *testing.T) {
 	})
 
 	t.Run("GetNamedActor", func(t *testing.T) {
-		objectStore := objectstore.NewLocalModeObjectStore()
+		objectStore := localstore.NewLocalModeObjectStore()
 		workerContext := NewLocalModeWorkerContext()
 		functionMgr := function.NewFunctionManager(nil)
 		actorMgr := NewActorConcurrencyGroupManager()
@@ -107,7 +107,7 @@ func TestLocalModeTaskSubmitter(t *testing.T) {
 	})
 
 	t.Run("SubmitActorTask", func(t *testing.T) {
-		objectStore := objectstore.NewLocalModeObjectStore()
+		objectStore := localstore.NewLocalModeObjectStore()
 		workerContext := NewLocalModeWorkerContext()
 		functionMgr := function.NewFunctionManager(nil)
 		actorMgr := NewActorConcurrencyGroupManager()
@@ -135,7 +135,7 @@ func TestLocalModeTaskSubmitter(t *testing.T) {
 // while holding the non-reentrant taskAndObjectLock. Submitting the dependent
 // task must return, and putting the dependency must not deadlock.
 func TestDependentTaskNoDeadlock(t *testing.T) {
-	objectStore := objectstore.NewLocalModeObjectStore()
+	objectStore := localstore.NewLocalModeObjectStore()
 	workerContext := NewLocalModeWorkerContext()
 	functionMgr := function.NewFunctionManager(nil)
 	actorMgr := NewActorConcurrencyGroupManager()
@@ -179,7 +179,7 @@ func TestDependentTaskNoDeadlock(t *testing.T) {
 // actor's concurrency group, task context, and named-actor registration so
 // later submissions and GetActor lookups report the actor as unavailable.
 func TestLocalModeKillActor(t *testing.T) {
-	objectStore := objectstore.NewLocalModeObjectStore()
+	objectStore := localstore.NewLocalModeObjectStore()
 	workerContext := NewLocalModeWorkerContext()
 	functionMgr := function.NewFunctionManager(nil)
 	actorMgr := NewActorConcurrencyGroupManager()
