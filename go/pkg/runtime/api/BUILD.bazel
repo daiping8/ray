@@ -25,6 +25,7 @@ go_library(
         "factory.go",
         "gcs_client.go",  # NEW: GCS client interface and factory
         "handle.go",
+        "internal.go",
         "method_extractor.go",
         "object.go",
         "object_id_generator.go",
