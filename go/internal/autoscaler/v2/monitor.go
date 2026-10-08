@@ -171,9 +171,17 @@ func NewAutoscalerMonitor(address string, configReader instance_manager.IConfigR
 		// Store the metrics address in the GCS key-value store:
 		// key: "AutoscalerMetricsAddress"
 		// value: "monitorIP:port"
-		if putRes, err := monitor.gcsClient.Put(constant.Ctx, "", "AutoscalerMetricsAddress", []byte(monitorAddr), true); !putRes || err != nil {
+		putRes, err := monitor.gcsClient.Put(constant.Ctx, "", "AutoscalerMetricsAddress", []byte(monitorAddr), true)
+		if err != nil {
 			log.Log.V(1).Error(err, "Failed to register metrics address to GCS")
 			return nil, err
+		}
+		if !putRes {
+			// A GCS backend can report "not written" without an error even for an
+			// overwriting put (the cgo client maps the C++ success flag this way).
+			// Log a warning and continue: returning (nil, err) with a nil error
+			// made the caller start Run() on a nil monitor and panic.
+			log.Log.V(1).Info("Metrics address was not registered in GCS (no error reported).", "address", monitorAddr)
 		}
 	}
 	// Fetch the name of the current Ray session.

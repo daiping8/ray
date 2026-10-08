@@ -1271,6 +1271,47 @@ func TestAutoscalerMonitor_Run_Reconciled(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// TestNewAutoscalerMonitor_PutFalseNoError reproduces the bench crash of the
+// Kuberay pod: the cgo GCS client's Put reports (false, nil) when the write does
+// not take, and the metrics-address registration used to turn that into a
+// (nil, nil) return of NewAutoscalerMonitor. The caller then started Run() on a
+// nil *AutoscalerMonitor and panicked
+// (v2.(*AutoscalerMonitor).run(0x0, ...) at the UpdateAutoscalingState call).
+// Kuberay-shaped inputs: no autoscaling config, a real logs dir, a monitor IP.
+func TestNewAutoscalerMonitor_PutFalseNoError(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	mockClient := &mockGcsClient{
+		addr:      "127.0.0.1:6379",
+		clusterID: ids.NewClusterID(),
+	}
+	mockClient.getFunc = func(ctx context.Context, ns, key string) ([]byte, error) {
+		if key == "session_name" {
+			return []byte("put-false-session"), nil
+		}
+		return nil, gcs.ErrNotImplemented
+	}
+	// Mirror the cgo client behavior: the put reports "not written" with no error.
+	mockClient.putFunc = func(ctx context.Context, ns, key string, value []byte, overwrite bool) (bool, error) {
+		return false, nil
+	}
+	gcs.SetClient(mockClient)
+	defer gcs.ClearClient()
+
+	configReader, err := CreateConfigReader(&MonitorV2Config{
+		GcsAddress: "127.0.0.1:6379",
+	})
+	assert.NoError(t, err)
+
+	monitor, err := NewAutoscalerMonitor("127.0.0.1:6379", configReader, tmpDir, "127.0.0.1")
+	if monitor == nil && err == nil {
+		t.Fatal("NewAutoscalerMonitor returned (nil, nil): Run() would dereference a nil receiver and panic")
+	}
+	assert.NoError(t, err)
+	assert.NotNil(t, monitor)
+	assert.Equal(t, "127.0.0.1:6379", monitor.gcsAddress)
+}
+
 // TestReportAutoscalingState_Success verifies a successful report: the state is
 // reported through gcsClient.ReportAutoscalingState, returns nil and does not
 // panic (mirroring the monitor.go reportAutoscalingState semantics).
