@@ -685,6 +685,72 @@ func TestGetSessionName(t *testing.T) {
 	})
 }
 
+// TestNewAutoscalerMonitor_EventLoggerFailure keeps the monitor usable when the
+// event logger cannot start: the constructor must skip the wrapping entirely
+// (leaving eventLogger nil so the scheduler's nil-guard stays effective) rather
+// than building a non-nil adapter around a nil logger, which would nil-deref on
+// the first scheduling update.
+// The failure is forced by placing a regular file where the events directory
+// would live, so creating it fails. This test must stay ahead of
+// TestNewAutoscalerMonitor in this file: the event logger registry is
+// process-global, and once another test registers the AUTOSCALER source the
+// forced failure can no longer be observed.
+func TestNewAutoscalerMonitor_EventLoggerFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	eventsPath := filepath.Join(tmpDir, "events")
+	assert.NoError(t, os.WriteFile(eventsPath, []byte("not a directory"), 0644))
+
+	mockClient := &mockGcsClient{
+		addr:      "127.0.0.1:6379",
+		clusterID: ids.NewClusterID(),
+	}
+	mockClient.getFunc = func(ctx context.Context, ns, key string) ([]byte, error) {
+		if key == "session_name" {
+			return []byte("event-fail-session"), nil
+		}
+		return nil, gcs.ErrNotImplemented
+	}
+	// GetAutoscalerStatus returns a head-node cluster state so the reconciler
+	// completes a full round through the scheduler with the nil event logger.
+	mockClient.getAutoscalerStatusFunc = func(ctx context.Context) (*proto.GetClusterStatusReply, error) {
+		return &proto.GetClusterStatusReply{
+			ClusterResourceState: &proto.ClusterResourceState{
+				ClusterResourceStateVersion: 1,
+				NodeStates: []*proto.NodeState{
+					{
+						NodeId: []byte("head-node"),
+						Status: proto.NodeStatus_RUNNING,
+						TotalResources: map[string]float64{
+							"node:__internal_head__": 1,
+						},
+					},
+				},
+			},
+		}, nil
+	}
+	gcs.SetClient(mockClient)
+	defer gcs.ClearClient()
+
+	configReader, err := CreateConfigReader(&MonitorV2Config{
+		GcsAddress: "127.0.0.1:6379",
+	})
+	assert.NoError(t, err)
+
+	monitor, err := NewAutoscalerMonitor("127.0.0.1:6379", configReader, tmpDir, "")
+	assert.NoError(t, err)
+	if assert.NotNil(t, monitor) {
+		assert.Nil(t, monitor.eventLogger)
+	}
+
+	// The downstream nil-guard path: one reconcile round with the nil event
+	// logger must complete without a panic.
+	autoscalingState, err := monitor.autoscaler.UpdateAutoscalingState()
+	assert.NoError(t, err)
+	if assert.NotNil(t, autoscalingState) {
+		assert.Equal(t, int64(1), autoscalingState.LastSeenClusterResourceStateVersion)
+	}
+}
+
 // TestNewAutoscalerMonitor tests creating an AutoscalerMonitor instance.
 func TestNewAutoscalerMonitor(t *testing.T) {
 	t.Run("create the monitor successfully (no config file)", func(t *testing.T) {

@@ -17,6 +17,7 @@ package monitor
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -51,6 +52,21 @@ func parseMonitorConfig(args []string) (*v2.MonitorV2Config, error) {
 		return nil, err
 	}
 	return v2.NewMonitorV2Config(MonitorCmd)
+}
+
+// TestMonitorPanicError verifies the panic-to-error conversion used by
+// runMonitor: a recovered panic must surface as a non-nil returned error so the
+// process exits non-zero (matching the Python monitor's non-zero traceback
+// exit) instead of cobra reporting a clean stop on a dead autoscaler.
+func TestMonitorPanicError(t *testing.T) {
+	err := monitorPanicError("boom")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "monitor panicked")
+	assert.Contains(t, err.Error(), "boom")
+
+	err = monitorPanicError(fmt.Errorf("wrapped boom"))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "wrapped boom")
 }
 
 // TestMonitorCmdStructure tests the basic structure of MonitorCmd.

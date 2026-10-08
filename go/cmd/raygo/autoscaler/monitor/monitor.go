@@ -101,11 +101,21 @@ func GetMonitorCmd() *cobra.Command {
 	return MonitorCmd
 }
 
+// monitorPanicError converts a recovered panic into the error returned by
+// runMonitor so the process exits non-zero, matching the Python monitor's
+// non-zero traceback exit. Swallowing the panic would make a dead autoscaler
+// look like a clean stop.
+func monitorPanicError(r interface{}) error {
+	v2.CustomPanicHook(r)
+	return fmt.Errorf("monitor panicked: %v", r)
+}
+
 // runMonitor runs the monitor command.
-func runMonitor(cmd *cobra.Command, args []string) error {
-	var err error
+func runMonitor(cmd *cobra.Command, args []string) (err error) {
 	defer func() {
-		v2.CustomPanicHook(recover())
+		if r := recover(); r != nil {
+			err = monitorPanicError(r)
+		}
 	}()
 
 	// Create and validate the MonitorConfig from the command line flags.

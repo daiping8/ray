@@ -197,17 +197,20 @@ func NewAutoscalerMonitor(address string, configReader instance_manager.IConfigR
 	if err != nil {
 		return nil, fmt.Errorf("invalid GCS address '%s': %w", address, err)
 	}
-	// Initialize the event logger.
+	// Initialize the event logger. A failure here must leave the event logger
+	// nil: wrapping a nil logger into the adapter would nil-deref on the first
+	// scheduling update. On any failure the monitor keeps running without event
+	// logging and the scheduler's nil-guard skips it.
 	if logDir != "" {
 		rayEventLogger, err := event.GetEventLogger(proto.Event_AUTOSCALER, logDir)
 		if err != nil {
 			log.Log.V(1).Error(err, "failed to get event logger")
-			monitor.eventLogger = nil
-		}
-		monitor.eventLogger, err = NewAutoscalerEventLogger(rayEventLogger)
-		if err != nil {
-			log.Log.V(1).Error(err, "failed to create AutoscalerEventLogger")
-			monitor.eventLogger = nil
+		} else {
+			monitor.eventLogger, err = NewAutoscalerEventLogger(rayEventLogger)
+			if err != nil {
+				log.Log.V(1).Error(err, "failed to create AutoscalerEventLogger")
+				monitor.eventLogger = nil
+			}
 		}
 	} else {
 		monitor.eventLogger = nil
