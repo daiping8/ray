@@ -127,24 +127,30 @@ func (c *NativeWorkerContext) GetRpcAddress() []byte {
 }
 
 // GetSerializedRuntimeEnv returns the serialized runtime environment.
+//
+// The C++ side returns a const char* pointing into a thread-local
+// std::string owned by C++ (see native_worker_context.cc), NOT a malloc'd
+// buffer, so the pointer must NOT be freed here. C.GoString copies the bytes
+// before the C++ thread-local string is reused by a later call.
 func (c *NativeWorkerContext) GetSerializedRuntimeEnv() string {
 	cStr := C.CNativeWorkerContext_GetSerializedRuntimeEnv()
 	if cStr == nil {
 		return ""
 	}
-	defer C.free(unsafe.Pointer(cStr))
-
 	return C.GoString(cStr)
 }
 
 // GetNamespace returns the current namespace.
+//
+// The C++ side returns a const char* pointing into a thread-local
+// std::string owned by C++ (see native_worker_context.cc), NOT a malloc'd
+// buffer, so the pointer must NOT be freed here. C.GoString copies the bytes
+// before the C++ thread-local string is reused by a later call.
 func (c *NativeWorkerContext) GetNamespace() string {
 	cStr := C.CNativeWorkerContext_GetNamespace()
 	if cStr == nil {
 		return ""
 	}
-	defer C.free(unsafe.Pointer(cStr))
-
 	return C.GoString(cStr)
 }
 
