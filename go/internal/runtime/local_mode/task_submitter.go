@@ -15,10 +15,12 @@
 package local_mode
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/ray-project/ray/go/internal/runtime/base"
 	"github.com/ray-project/ray/go/internal/runtime/localstore"
@@ -64,6 +66,12 @@ type LocalModeTaskSubmitter struct {
 
 	// namedActors stores named actors
 	namedActors sync.Map // map[string]*namedActorInfo
+
+	// placementGroups simulates placement group creation in-process. Each
+	// created group is stored under its id and considered ready immediately.
+	// Reads and writes are serialized through placementGroupMu.
+	placementGroups  map[ids.PlacementGroupID]*submitter.PlacementGroupCreationOptions
+	placementGroupMu sync.Mutex
 }
 
 // namedActorInfo holds information about a named actor
@@ -102,6 +110,7 @@ func NewLocalModeTaskSubmitter(
 		taskExecutor:             taskExecutor,
 		functionMgr:              functionMgr,
 		actorConcurrencyGroupMgr: actorConcurrencyGroupMgr,
+		placementGroups:          make(map[ids.PlacementGroupID]*submitter.PlacementGroupCreationOptions),
 	}
 }
 
@@ -630,6 +639,41 @@ func (s *LocalModeTaskSubmitter) onObjectPut(oid ids.ObjectID) {
 // Shutdown shuts down the task submitter.
 func (s *LocalModeTaskSubmitter) Shutdown() {
 	s.actorConcurrencyGroupMgr.Shutdown()
+}
+
+// CreatePlacementGroup simulates creating a placement group by storing the
+// options in an in-process map and returning its generated id. The group is
+// considered ready immediately.
+func (s *LocalModeTaskSubmitter) CreatePlacementGroup(ctx context.Context, opts *submitter.PlacementGroupCreationOptions) (ids.PlacementGroupID, error) {
+	if err := opts.Validate(); err != nil {
+		return ids.NilPlacementGroupID(), err
+	}
+	id := ids.OfPlacementGroupID(ids.NewJobID())
+	s.placementGroupMu.Lock()
+	defer s.placementGroupMu.Unlock()
+	s.placementGroups[id] = opts
+	return id, nil
+}
+
+// RemovePlacementGroup removes a placement group from the in-process map.
+// Removing an unknown group is a no-op success, matching local-mode semantics.
+func (s *LocalModeTaskSubmitter) RemovePlacementGroup(ctx context.Context, id ids.PlacementGroupID) error {
+	s.placementGroupMu.Lock()
+	defer s.placementGroupMu.Unlock()
+	delete(s.placementGroups, id)
+	return nil
+}
+
+// WaitPlacementGroupReady blocks until the placement group is ready. In local
+// mode a created group is ready immediately, so this only fails when the group
+// does not exist.
+func (s *LocalModeTaskSubmitter) WaitPlacementGroupReady(ctx context.Context, id ids.PlacementGroupID, timeout time.Duration) error {
+	s.placementGroupMu.Lock()
+	defer s.placementGroupMu.Unlock()
+	if _, ok := s.placementGroups[id]; ok {
+		return nil
+	}
+	return fmt.Errorf("placement group %s not found", id)
 }
 
 // Compile-time check to ensure LocalModeTaskSubmitter implements TaskSubmitter
