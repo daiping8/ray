@@ -23,6 +23,7 @@ import (
 	"context"
 
 	"github.com/ray-project/ray/go/pkg/gcs"
+	"github.com/ray-project/ray/go/pkg/ids"
 	"github.com/ray-project/ray/go/pkg/runtime/api"
 	"github.com/ray-project/ray/go/proto"
 )
@@ -60,6 +61,16 @@ func (a *gcsClientAdapter) IsClosed() bool {
 		return checker.IsClosed()
 	}
 	return false
+}
+
+// GetPlacementGroupInfoByName implements api.GCSClient.GetPlacementGroupInfoByName.
+func (a *gcsClientAdapter) GetPlacementGroupInfoByName(ctx context.Context, name, namespace string) (*proto.PlacementGroupTableData, error) {
+	return a.client.GetPlacementGroupByName(ctx, name, namespace)
+}
+
+// GetAllActorInfo implements api.GCSClient.GetAllActorInfo.
+func (a *gcsClientAdapter) GetAllActorInfo(ctx context.Context, jobID *ids.JobID, actorStateName *gcs.ActorStateName) ([]*proto.ActorTableData, error) {
+	return a.client.ListActorsByFilter(ctx, jobID, actorStateName)
 }
 
 type gcsClientFactory struct{}
