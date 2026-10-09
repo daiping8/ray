@@ -243,27 +243,52 @@ func (e *LocalModeTaskExecutor) executeActorMethodInGroup(
 // local mode either. Without this, large arguments (>100KB, which
 // convertArgToFunctionArg passes by reference) fail deserialization and the
 // task's return object is never produced.
-//
-// The returned slices alias the object store's stored arrays (GetRaw uses
-// reference semantics) and stay owned by the store, so they must not be mutated
-// or released here.
 func (e *LocalModeTaskExecutor) resolveByRefArgs(args []function.FunctionArg) ([]function.FunctionArg, error) {
 	resolved := make([]function.FunctionArg, len(args))
+	var byRefIDs []*ids.ObjectID
+	var byRefArgIdx []int
 	for i, arg := range args {
 		if arg.ObjectRef == nil {
 			resolved[i] = arg
 			continue
 		}
-		nativeObjects, err := e.objectStore.GetRaw(
-			[]*ids.ObjectID{&arg.ObjectRef.ObjectID}, -1, "")
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve pass-by-reference argument %d: %w", i, err)
+		byRefArgIdx = append(byRefArgIdx, i)
+		byRefIDs = append(byRefIDs, &arg.ObjectRef.ObjectID)
+	}
+	if len(byRefIDs) == 0 {
+		return resolved, nil
+	}
+	// Fetch all pass-by-reference arguments in one GetRaw call: the store's
+	// waitForObjects waits for the whole batch under a single lock acquisition,
+	// so per-argument calls would multiply that wait by the argument count.
+	// GetRaw returns results in input order, so index j corresponds to
+	// byRefArgIdx[j].
+	nativeObjects, err := e.objectStore.GetRaw(byRefIDs, -1, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve pass-by-reference arguments: %w", err)
+	}
+	if len(nativeObjects) != len(byRefIDs) {
+		// getRawInternal skips objects that are no longer in the store and
+		// returns no IDs, so the missing entries cannot be derived from the
+		// returned slice directly. Check each by-ref ID individually to report
+		// exactly which object(s) are missing (this path only triggers when an
+		// object was deleted concurrently after waitForObjects returned).
+		missing := make([]string, 0, len(byRefIDs)-len(nativeObjects))
+		for _, id := range byRefIDs {
+			if !e.objectStore.IsObjectReady(*id) {
+				missing = append(missing, id.Hex())
+			}
 		}
-		if len(nativeObjects) == 0 {
-			return nil, fmt.Errorf("pass-by-reference argument %d object %s not found",
-				i, arg.ObjectRef.ObjectID.Hex())
+		for _, obj := range nativeObjects {
+			obj.Close()
 		}
-		resolved[i] = function.NewFunctionArgByValue(nativeObjects[0].DataBytes(), nativeObjects[0].Metadata)
+		return nil, fmt.Errorf("pass-by-reference resolution returned %d objects for %d IDs, missing: %v",
+			len(nativeObjects), len(byRefIDs), missing)
+	}
+	for j, i := range byRefArgIdx {
+		obj := nativeObjects[j]
+		resolved[i] = function.NewFunctionArgByValue(obj.DataBytes(), obj.Metadata)
+		obj.Close()
 	}
 	return resolved, nil
 }
