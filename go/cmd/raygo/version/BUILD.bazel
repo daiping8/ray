@@ -1,4 +1,4 @@
-# Copyright 2025 The Ray Authors.
+# Copyright 2026 The Ray Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,29 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
 
 go_library(
-    name = "submitter",
-    srcs = [
-        "executor.go",
-        "options.go",
-        "submitter.go",
-    ],
-    importpath = "github.com/ray-project/ray/go/pkg/runtime/submitter",
+    name = "version",
+    srcs = ["version.go"],
+    importpath = "github.com/ray-project/ray/go/cmd/raygo/version",
     visibility = ["//visibility:public"],
     deps = [
-        "//go/pkg/ids",
-        "//go/pkg/log",
-        "//go/pkg/runtime/function",
-    ],
-)
-
-go_test(
-    name = "submitter_test",
-    srcs = ["options_test.go"],
-    embed = [":submitter"],
-    deps = [
-        "@com_github_stretchr_testify//assert",
+        "//go/pkg/version",
+        "@com_github_spf13_cobra//:cobra",
     ],
 )
