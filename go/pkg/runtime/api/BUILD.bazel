@@ -169,3 +169,25 @@ go_test(
         "//go/pkg/runtime/submitter",
     ],
 )
+
+# api.RuntimeContext delegation/mapping tests, gated behind the "apirtcontext"
+# build tag because storeHandleLocked mutates package-global handle state
+# (currentHandle) that the default api tests assume is unset. Includes
+# task_return_ref_test.go for the shared recordingRuntime helper.
+go_test(
+    name = "api_runtime_context_test",
+    srcs = [
+        "runtime_context_test.go",
+        "task_return_ref_test.go",
+    ],
+    embed = [":api"],
+    gotags = ["apirtcontext"],
+    deps = [
+        "//go/pkg/ids",
+        "//go/pkg/runtime/contract",
+        "//go/pkg/runtime/function",
+        "//go/pkg/runtime/object",
+        "//go/pkg/runtime/submitter",
+        "@com_github_vmihailenco_msgpack_v5//:msgpack",
+    ],
+)
