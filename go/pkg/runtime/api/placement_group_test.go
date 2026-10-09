@@ -180,6 +180,21 @@ func TestPlacementGroupCreationOptionsValidate(t *testing.T) {
 	}
 }
 
+func TestPlacementGroupCreationOptionsAnonymous(t *testing.T) {
+	// The name is optional: an anonymous placement group (no name) with a valid
+	// bundle list builds and validates successfully, matching the Python and
+	// Java APIs.
+	opts, err := NewPlacementGroupCreationOptionsBuilder().
+		WithBundles([]map[string]float64{{"CPU": 1}}).
+		Build()
+	if err != nil {
+		t.Fatalf("expected anonymous placement group to build, got %v", err)
+	}
+	if opts.Name != "" || len(opts.Bundles) != 1 {
+		t.Fatalf("unexpected options: %+v", opts)
+	}
+}
+
 func TestCreatePlacementGroupUsesSubmitter(t *testing.T) {
 	id := ids.OfPlacementGroupID(ids.NewJobID())
 	s := &pgRecordingSubmitter{pgID: id}
@@ -301,6 +316,44 @@ func TestPlacementGroupWait(t *testing.T) {
 			t.Fatal("expected error for non-positive timeout")
 		}
 	})
+
+	t.Run("WaitContext cancelled", func(t *testing.T) {
+		// A cancelled context must abort the wait with ctx.Err() even though the
+		// submitter is still blocking, mirroring how the facade threads the
+		// caller's context into the submitter.
+		s := &pgCtxBlockingSubmitter{}
+		initPgMockRuntime(t, s)
+		pg := &PlacementGroup{id: id}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		ready, err := pg.WaitContext(ctx, 60)
+		if err == nil {
+			t.Fatal("expected ctx cancellation error, got nil")
+		}
+		if ready {
+			t.Fatal("expected ready=false on cancelled context")
+		}
+	})
+}
+
+// pgCtxBlockingSubmitter is a submitter whose WaitPlacementGroupReady blocks
+// until the context is cancelled, so tests can verify that the facade threads
+// the caller's context through instead of hardcoding a background context.
+type pgCtxBlockingSubmitter struct {
+	submitter.TaskSubmitter
+}
+
+func (s *pgCtxBlockingSubmitter) CreatePlacementGroup(ctx context.Context, opts *submitter.PlacementGroupCreationOptions) (ids.PlacementGroupID, error) {
+	return ids.NilPlacementGroupID(), nil
+}
+
+func (s *pgCtxBlockingSubmitter) RemovePlacementGroup(ctx context.Context, id ids.PlacementGroupID) error {
+	return nil
+}
+
+func (s *pgCtxBlockingSubmitter) WaitPlacementGroupReady(ctx context.Context, id ids.PlacementGroupID, timeout time.Duration) error {
+	<-ctx.Done()
+	return ctx.Err()
 }
 
 func TestGetPlacementGroupUsesGCSClient(t *testing.T) {
@@ -474,6 +527,97 @@ func TestWaitPlacementGroupReadyNilSubmitter(t *testing.T) {
 
 	err := PlacementGroups.WaitPlacementGroupReady(context.Background(), ids.OfPlacementGroupID(ids.NewJobID()), time.Second)
 	assertRuntimeErrorState(t, err, "wait_placement_group_ready", "submitter_not_available")
+}
+
+func TestGetPlacementGroupLocalModeFallback(t *testing.T) {
+	// In local mode no GCS client factory is registered, so the facade must
+	// fall back to the task submitter's in-process placement group store for
+	// reads (Get / GetByName / GetAll). This verifies the fallback for Get by
+	// id, plus the by-name and list variants.
+	id := ids.OfPlacementGroupID(ids.NewJobID())
+	opts := &submitter.PlacementGroupCreationOptions{
+		Name:     "pg-local",
+		Bundles:  []map[string]float64{{"CPU": 1}},
+		Strategy: 0,
+	}
+	s := &pgLocalStoreSubmitter{groups: map[ids.PlacementGroupID]*submitter.PlacementGroupCreationOptions{id: opts}}
+	initPgMockRuntime(t, s)
+
+	pg, err := GetPlacementGroup(context.Background(), id)
+	if err != nil {
+		t.Fatalf("GetPlacementGroup (local fallback) error: %v", err)
+	}
+	if pg == nil {
+		t.Fatal("GetPlacementGroup returned nil for a locally stored group")
+	}
+	if pg.ID() != id || pg.Name() != "pg-local" || len(pg.Bundles()) != 1 {
+		t.Fatalf("unexpected local placement group: %+v", pg)
+	}
+	if pg.State() != PlacementGroupStateCreated {
+		t.Fatalf("local placement group state = %v, want Created", pg.State())
+	}
+
+	// By-name lookup resolves through the local store.
+	pgByName, err := GetPlacementGroupByName(context.Background(), "pg-local", "")
+	if err != nil {
+		t.Fatalf("GetPlacementGroupByName (local fallback) error: %v", err)
+	}
+	if pgByName == nil || pgByName.ID() != id {
+		t.Fatalf("by-name lookup did not resolve the local group: %+v", pgByName)
+	}
+
+	// Missing group returns (nil, nil), matching the GCS-backed path.
+	missing, err := GetPlacementGroup(context.Background(), ids.OfPlacementGroupID(ids.NewJobID()))
+	if err != nil {
+		t.Fatalf("GetPlacementGroup (missing) error: %v", err)
+	}
+	if missing != nil {
+		t.Fatalf("expected nil for missing local group, got %+v", missing)
+	}
+
+	// List returns the stored group.
+	all, err := GetAllPlacementGroups(context.Background())
+	if err != nil {
+		t.Fatalf("GetAllPlacementGroups (local fallback) error: %v", err)
+	}
+	if len(all) != 1 || all[0].ID() != id {
+		t.Fatalf("unexpected local placement group list: %+v", all)
+	}
+}
+
+// pgLocalStoreSubmitter is a minimal submitter that implements the api
+// package's in-process placement group store (local mode), so the facade's
+// GCS-less read path can be tested without a live cluster.
+type pgLocalStoreSubmitter struct {
+	submitter.TaskSubmitter
+
+	groups map[ids.PlacementGroupID]*submitter.PlacementGroupCreationOptions
+}
+
+func (s *pgLocalStoreSubmitter) GetPlacementGroupLocal(ctx context.Context, id ids.PlacementGroupID) (*submitter.PlacementGroupCreationOptions, bool) {
+	opts, ok := s.groups[id]
+	return opts, ok
+}
+
+func (s *pgLocalStoreSubmitter) ListPlacementGroupsLocal(ctx context.Context) map[ids.PlacementGroupID]*submitter.PlacementGroupCreationOptions {
+	out := make(map[ids.PlacementGroupID]*submitter.PlacementGroupCreationOptions, len(s.groups))
+	for id, opts := range s.groups {
+		out[id] = opts
+	}
+	return out
+}
+
+func TestActorWithPlacementGroupFailsLoudly(t *testing.T) {
+	// Actor-level placement-group binding is unsupported on every backend, so
+	// the builder must fail loudly at Create rather than silently ignoring the
+	// binding. No runtime is needed: the error is recorded by WithPlacementGroup
+	// and surfaced before the submitter is consulted.
+	pg := &PlacementGroup{id: ids.OfPlacementGroupID(ids.NewJobID())}
+	_, err := Actor[*struct{}](&struct{}{}).WithPlacementGroup(pg, 0).Create()
+	if err == nil {
+		t.Fatal("expected error for actor placement-group binding, got nil")
+	}
+	assertRuntimeErrorState(t, err, "create_actor", "actor placement-group binding is not supported on this path")
 }
 
 func TestGetPlacementGroupFactoryNotRegistered(t *testing.T) {

@@ -210,7 +210,10 @@ func TestPlacementGroupCreationOptionsValidate(t *testing.T) {
 		opts PlacementGroupCreationOptions
 		want bool
 	}{
-		{"empty name", PlacementGroupCreationOptions{}, false},
+		{"empty options", PlacementGroupCreationOptions{}, false},
+		{"anonymous placement group", PlacementGroupCreationOptions{
+			Bundles: []map[string]float64{{"CPU": 1}}, Strategy: 0,
+		}, true},
 		{"no bundles", PlacementGroupCreationOptions{Name: "pg-1"}, false},
 		{"invalid strategy", PlacementGroupCreationOptions{
 			Name: "pg-1", Bundles: []map[string]float64{{"CPU": 1}}, Strategy: 99,

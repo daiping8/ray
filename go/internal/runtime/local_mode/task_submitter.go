@@ -673,8 +673,34 @@ func (s *LocalModeTaskSubmitter) WaitPlacementGroupReady(ctx context.Context, id
 	if _, ok := s.placementGroups[id]; ok {
 		return nil
 	}
-	return fmt.Errorf("placement group %s not found", id)
+	return fmt.Errorf("placement group %s not ready within %v: %w", id, timeout, submitter.ErrPlacementGroupNotReady)
 }
+
+// GetPlacementGroupLocal implements api.PlacementGroupLocalStore: it returns
+// the placement group stored under id, or (nil, false) when it does not exist.
+func (s *LocalModeTaskSubmitter) GetPlacementGroupLocal(ctx context.Context, id ids.PlacementGroupID) (*submitter.PlacementGroupCreationOptions, bool) {
+	s.placementGroupMu.Lock()
+	defer s.placementGroupMu.Unlock()
+	opts, ok := s.placementGroups[id]
+	return opts, ok
+}
+
+// ListPlacementGroupsLocal implements api.PlacementGroupLocalStore: it returns
+// all locally stored placement groups keyed by id.
+func (s *LocalModeTaskSubmitter) ListPlacementGroupsLocal(ctx context.Context) map[ids.PlacementGroupID]*submitter.PlacementGroupCreationOptions {
+	s.placementGroupMu.Lock()
+	defer s.placementGroupMu.Unlock()
+	out := make(map[ids.PlacementGroupID]*submitter.PlacementGroupCreationOptions, len(s.placementGroups))
+	for id, opts := range s.placementGroups {
+		out[id] = opts
+	}
+	return out
+}
+
+// Compile-time check that LocalModeTaskSubmitter implements the api facade's
+// in-process placement group store, so local-mode placement group reads
+// (Get/GetByName/GetAll) resolve without a GCS client.
+var _ api.PlacementGroupLocalStore = (*LocalModeTaskSubmitter)(nil)
 
 // Compile-time check to ensure LocalModeTaskSubmitter implements TaskSubmitter
 var _ submitter.TaskSubmitter = (*LocalModeTaskSubmitter)(nil)

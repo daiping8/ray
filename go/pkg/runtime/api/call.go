@@ -227,6 +227,10 @@ type actorOptions[T any] struct {
 	// self points to the owning creator so builder methods can return the
 	// concrete creator type for chaining.
 	self T
+	// err is a deferred error from a builder call that requested an option the
+	// backends cannot honor. It is surfaced by Create so an unsupported option
+	// fails loudly instead of silently becoming a no-op.
+	err error
 }
 
 // newActorOptions creates actor options with a default empty ActorCreationOptions
@@ -266,19 +270,27 @@ func (o *actorOptions[T]) WithNamespace(namespace string) T {
 
 // WithPlacementGroup binds the actor to the given placement group bundle.
 //
+// Actor-level placement-group binding is not supported by any backend in this
+// tree: the native path's C++ ActorCreationOptions has no placement-group
+// fields (task_submitter_ops.cc), and local mode does not schedule against
+// bundles. Instead of silently ignoring the request, the creator records an
+// error that Create surfaces so the caller learns the option was not applied.
+// Note: the internal tree has the same gap (its actor creation path does not
+// consume PlacementGroup either); this loud failure is an OSS-side correction.
+//
 // Parameters:
 //   - group: The placement group to bind to.
 //   - bundleIndex: The index of the bundle to use.
 //
 // Returns:
-//   - T: The same actor creator for chaining.
+//   - T: The same actor creator for chaining; Create will fail if the binding
+//     is unsupported.
 func (o *actorOptions[T]) WithPlacementGroup(group *PlacementGroup, bundleIndex int) T {
 	if group == nil {
 		return o.self
 	}
-	o.options.PlacementGroup = &submitter.PlacementGroupOptions{
-		ID:          group.ID(),
-		BundleIndex: bundleIndex,
+	if o.err == nil {
+		o.err = errors.NewRuntimeError("create_actor", "actor placement-group binding is not supported on this path")
 	}
 	return o.self
 }
@@ -504,6 +516,10 @@ func (c *ActorCreator[T]) WithMaxConcurrency(maxConcurrency int) *ActorCreator[T
 //   - *ActorHandleImpl[T]: A handle to the created actor.
 //   - error: Any error encountered during actor creation.
 func (c *ActorCreator[T]) Create(args ...interface{}) (*ActorHandleImpl[T], error) {
+	if c.err != nil {
+		return nil, c.err
+	}
+
 	functionArgs := convertArgs(args...)
 
 	actorID, err := createActorWithSubmitter("create_actor", functionArgs, func(s submitter.TaskSubmitter) (ids.ActorID, error) {

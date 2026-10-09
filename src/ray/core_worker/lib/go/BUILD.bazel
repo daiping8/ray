@@ -267,7 +267,10 @@ ray_cc_library(
 ray_cc_library(
     name = "task_submitter_ops",
     srcs = ["task_submitter_ops.cc"],
-    hdrs = ["task_submitter_ops.h"],
+    hdrs = [
+        "native_task_submitter.h",  # CActorCreationOptions used by MapConcurrencyGroupsFromC
+        "task_submitter_ops.h",
+    ],
     includes = ["."],
     visibility = ["//go:__subpackages__"],
     deps = [

@@ -1113,8 +1113,14 @@ func getPlacementGroupByNameC(cc *cgoClient, cName, cNamespace *C.char) (*proto.
 }
 
 // GetPlacementGroupByName gets placement group info by name and namespace.
-// An empty namespace is passed as nil to the C bridge, which falls back to the
-// "default" namespace (matching GlobalStateAccessor semantics).
+//
+// An empty namespace is passed as an empty string (not NULL) so the C bridge
+// receives "" instead of falling back to its own "default" normalization. The
+// api facade already resolved an empty namespace to the current namespace; a
+// genuinely empty result here must stay empty at the boundary so the caller's
+// namespace decision is not overridden by the C++ side (which maps a NULL
+// namespace to "default", creating an asymmetry with how creation stores the
+// literal namespace).
 func (c *cgoClient) GetPlacementGroupByName(ctx context.Context, name, namespace string) (*proto.PlacementGroupTableData, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("placement group name is required")
@@ -1128,11 +1134,10 @@ func (c *cgoClient) GetPlacementGroupByName(ctx context.Context, name, namespace
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
 
-	var cNamespace *C.char
-	if namespace != "" {
-		cNamespace = C.CString(namespace)
-		defer C.free(unsafe.Pointer(cNamespace))
-	}
+	// Always pass a non-nil namespace so the C++ "default" fallback never
+	// silently rewrites an explicit empty namespace.
+	cNamespace := C.CString(namespace)
+	defer C.free(unsafe.Pointer(cNamespace))
 
 	return getPlacementGroupByNameC(c, cName, cNamespace)
 }

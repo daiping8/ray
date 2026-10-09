@@ -155,7 +155,7 @@ func GetGCSClient() (GCSClient, error) {
 	if addr == "" {
 		return nil, ErrGCSClientNotConnected
 	}
-	return getOrCreateCachedClient(addr, gcs.ClientOptions{Address: addr})
+	return getOrCreateCachedClient(addr, gcs.ClientOptions{Address: addr, TimeoutMs: 10000})
 }
 
 // ============================================================================

@@ -261,10 +261,11 @@ type PlacementGroupCreationOptions struct {
 }
 
 // Validate checks that required fields are set and strategy is valid.
+//
+// The name is optional: anonymous placement groups are legal (consistent with
+// the Python and Java APIs, which treat the name as optional). Only the bundle
+// list and the strategy are required.
 func (o PlacementGroupCreationOptions) Validate() error {
-	if o.Name == "" {
-		return errors.New("placement group name is required")
-	}
 	if len(o.Bundles) == 0 {
 		return errors.New("at least one bundle is required")
 	}

@@ -102,11 +102,9 @@ func (b *PlacementGroupCreationOptionsBuilder) WithStrategy(s PlacementStrategy)
 	return b
 }
 
-// Build validates the options and returns them.
+// Build validates the options and returns them. The name is optional
+// (anonymous placement groups are legal), so only the bundle list is required.
 func (b *PlacementGroupCreationOptionsBuilder) Build() (*PlacementGroupCreationOptions, error) {
-	if b.opts.Name == "" {
-		return nil, fmt.Errorf("placement group name is required")
-	}
 	if len(b.opts.Bundles) == 0 {
 		return nil, fmt.Errorf("at least one bundle is required")
 	}
@@ -121,6 +119,34 @@ func (o *PlacementGroupCreationOptions) toSubmitterOptions() *submitter.Placemen
 		Bundles:  o.Bundles,
 		Strategy: int32(o.Strategy),
 	}
+}
+
+// PlacementGroupLocalStore is the optional in-process placement group store
+// implemented by task submitters that have no GCS behind them (local mode).
+// When GetGCSClient reports that no GCS client factory is registered, the
+// facade consults this store so Get/GetByName/GetAll work without a live
+// cluster, mirroring how creation already works through the submitter.
+type PlacementGroupLocalStore interface {
+	// GetPlacementGroupLocal returns the placement group stored under id, or
+	// (nil, false) when no such group exists.
+	GetPlacementGroupLocal(ctx context.Context, id ids.PlacementGroupID) (*submitter.PlacementGroupCreationOptions, bool)
+	// ListPlacementGroupsLocal returns all locally stored placement groups
+	// keyed by id.
+	ListPlacementGroupsLocal(ctx context.Context) map[ids.PlacementGroupID]*submitter.PlacementGroupCreationOptions
+}
+
+// localPlacementGroupStoreFromSubmitter returns the current submitter's local
+// placement group store, or nil when the submitter does not serve reads
+// in-process (e.g. the native GCS-backed submitter).
+func localPlacementGroupStoreFromSubmitter() PlacementGroupLocalStore {
+	s := getTaskSubmitter()
+	if s == nil {
+		return nil
+	}
+	if store, ok := s.(PlacementGroupLocalStore); ok {
+		return store
+	}
+	return nil
 }
 
 // placementGroupsFacade is the package-level placement group entry point.
@@ -203,6 +229,19 @@ func (p placementGroupsFacade) WaitPlacementGroupReady(ctx context.Context, id i
 func (p placementGroupsFacade) GetPlacementGroup(ctx context.Context, id ids.PlacementGroupID) (*PlacementGroup, error) {
 	c, err := GetGCSClient()
 	if err != nil {
+		if stderrors.Is(err, ErrGCSClientFactoryNotRegistered) {
+			// Local mode: no GCS; fall back to the submitter's in-process store.
+			// A missing group is reported as not found (nil, nil), matching the
+			// GCS-backed path.
+			store := localPlacementGroupStoreFromSubmitter()
+			if store != nil {
+				opts, ok := store.GetPlacementGroupLocal(ctx, id)
+				if !ok {
+					return nil, nil
+				}
+				return newPlacementGroupFromLocalStore(opts, id), nil
+			}
+		}
 		return nil, err
 	}
 	data, err := c.GetPlacementGroupInfo(ctx, id)
@@ -224,6 +263,25 @@ func (p placementGroupsFacade) GetPlacementGroupByName(ctx context.Context, name
 	}
 	c, err := GetGCSClient()
 	if err != nil {
+		if stderrors.Is(err, ErrGCSClientFactoryNotRegistered) {
+			// Local mode: no GCS; fall back to the submitter's in-process store.
+			// Local mode keeps a single in-process namespace, so the namespace
+			// only participates in the match when it is non-empty (and then must
+			// equal "default"). A missing group is reported as not found.
+			store := localPlacementGroupStoreFromSubmitter()
+			if store != nil {
+				for id, opts := range store.ListPlacementGroupsLocal(ctx) {
+					if opts.Name != name {
+						continue
+					}
+					if namespace != "" && namespace != "default" {
+						continue
+					}
+					return newPlacementGroupFromLocalStore(opts, id), nil
+				}
+				return nil, nil
+			}
+		}
 		return nil, err
 	}
 	data, err := c.GetPlacementGroupInfoByName(ctx, name, namespace)
@@ -251,6 +309,18 @@ func currentNamespace() string {
 func (p placementGroupsFacade) GetAllPlacementGroups(ctx context.Context) ([]*PlacementGroup, error) {
 	c, err := GetGCSClient()
 	if err != nil {
+		if stderrors.Is(err, ErrGCSClientFactoryNotRegistered) {
+			// Local mode: no GCS; fall back to the submitter's in-process store.
+			store := localPlacementGroupStoreFromSubmitter()
+			if store != nil {
+				all := store.ListPlacementGroupsLocal(ctx)
+				out := make([]*PlacementGroup, 0, len(all))
+				for id, opts := range all {
+					out = append(out, newPlacementGroupFromLocalStore(opts, id))
+				}
+				return out, nil
+			}
+		}
 		return nil, err
 	}
 	list, err := c.GetAllPlacementGroupInfo(ctx)
@@ -265,6 +335,19 @@ func (p placementGroupsFacade) GetAllPlacementGroups(ctx context.Context) ([]*Pl
 		out = append(out, newPlacementGroupFromProto(d))
 	}
 	return out, nil
+}
+
+// newPlacementGroupFromLocalStore builds a PlacementGroup value object from the
+// submitter's stored creation options and the id. Local mode creates groups as
+// immediately ready, so the state is reported as Created.
+func newPlacementGroupFromLocalStore(opts *submitter.PlacementGroupCreationOptions, id ids.PlacementGroupID) *PlacementGroup {
+	return &PlacementGroup{
+		id:       id,
+		name:     opts.Name,
+		bundles:  opts.Bundles,
+		strategy: PlacementStrategy(opts.Strategy),
+		state:    PlacementGroupStateCreated,
+	}
 }
 
 // PlacementGroup is the user-facing placement group value object. Its fields
@@ -297,7 +380,21 @@ func (p *PlacementGroup) State() PlacementGroupState { return p.state }
 // It returns (true, nil) when the group is ready and (false, nil) when the
 // timeout expires before the group becomes ready; a real failure returns
 // (false, error).
+//
+// This is the context-less convenience form matching Java's
+// PlacementGroup.wait(int timeoutSeconds); it uses a background context.
+// Callers that need cancellation control should use WaitContext.
 func (p *PlacementGroup) Wait(timeoutSeconds int) (bool, error) {
+	return p.WaitContext(context.Background(), timeoutSeconds)
+}
+
+// WaitContext blocks until the placement group is ready or the timeout
+// expires, honouring the caller's context (cancellation or deadline aborts the
+// wait). It returns (true, nil) when the group is ready, (false, nil) when the
+// timeout expires before the group becomes ready, and (false, ctx.Err()) when
+// the context is cancelled before either happens. A real failure returns
+// (false, error).
+func (p *PlacementGroup) WaitContext(ctx context.Context, timeoutSeconds int) (bool, error) {
 	if timeoutSeconds <= 0 {
 		return false, fmt.Errorf("wait placement group: timeout must be positive, got %d", timeoutSeconds)
 	}
@@ -305,7 +402,7 @@ func (p *PlacementGroup) Wait(timeoutSeconds int) (bool, error) {
 	if s == nil {
 		return false, errors.NewRuntimeError("wait_placement_group", submitterNotAvailable)
 	}
-	err := s.WaitPlacementGroupReady(context.Background(), p.id, time.Duration(timeoutSeconds)*time.Second)
+	err := s.WaitPlacementGroupReady(ctx, p.id, time.Duration(timeoutSeconds)*time.Second)
 	if err == nil {
 		return true, nil
 	}

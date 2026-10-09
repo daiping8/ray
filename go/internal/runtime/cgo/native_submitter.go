@@ -134,10 +134,21 @@ func (s *NativeTaskSubmitter) CreateActor(
 		cArgs[i] = ConvertFunctionArgToC(arg)
 	}
 
+	// Validate options before conversion, then resolve the "unset" zero value to
+	// the unlimited sentinel. Passing a raw 0 straight through to C++ would be
+	// silently treated as "unlimited", so NormalizeMaxPendingCalls makes the
+	// zero-value struct valid while keeping behavior consistent with local_mode.
+	if options != nil {
+		if err := options.ValidateMaxPendingCalls(); err != nil {
+			return ids.NilActorID(), err
+		}
+		options.NormalizeMaxPendingCalls()
+	}
+
 	// Convert options to C struct
 	var cOptions *C.CActorCreationOptions
 	if options != nil {
-		cOptions = convertActorCreationOptionsToC(options)
+		cOptions = convertActorCreationOptionsToC(options, functionDescriptor.ToList())
 		defer freeActorCreationOptions(cOptions)
 	}
 
@@ -289,22 +300,19 @@ func (s *NativeTaskSubmitter) GetActor(name string, namespace string) (submitter
 // GetActorHandle retrieves an actor handle by its actor ID.
 //
 // This implementation deviates from us-design-get-actor-handle.md (AC4/Q2):
-// it looks up a process-local registry of actor IDs created by this process
-// instead of the C++ CoreWorker's ActorManager (core_worker.cc is frozen).
-// Consequently:
-//   - Only actors created by THIS process via CreateActor are registered;
-//     actors obtained through GetActor (by name) or deserialized handles are not
-//     registered and report "not found".
-//   - The returned handle always carries LanguageGo.
+// the C++ CoreWorker's ActorManager (core_worker.cc is frozen) is not
+// consulted; instead any non-nil actor ID resolves to a handle whose language
+// is carried on the handle itself. The returned handle always carries
+// LanguageGo.
 //
-// Consistent with Java's NativeTaskSubmitter.getActor(ActorId) -> NativeActorHandle.create.
+// An unknown actor ID is still a valid handle (matching Java's
+// NativeTaskSubmitter.getActor(ActorId) -> NativeActorHandle.create): the
+// actual method call surfaces a genuine error if the actor does not exist, so
+// handles obtained by name, handles for actors created elsewhere, and
+// worker-side lookups all work.
 func (s *NativeTaskSubmitter) GetActorHandle(actorID ids.ActorID) (submitter.ActorHandle, error) {
 	if actorID.IsNil() {
 		return nil, fmt.Errorf("get actor handle: actor ID is nil")
-	}
-
-	if !createdActorIDSet.contains(actorID) {
-		return nil, fmt.Errorf("get actor handle: actor %s not found", actorID.Hex())
 	}
 
 	return object.NewNativeActorHandle(actorID, object.LanguageGo), nil
@@ -393,7 +401,7 @@ func convertTaskOptionsToC(opts *submitter.TaskOptions) *C.CTaskOptions {
 }
 
 // convertActorCreationOptionsToC converts Go ActorCreationOptions to C.CActorCreationOptions.
-func convertActorCreationOptionsToC(opts *submitter.ActorCreationOptions) *C.CActorCreationOptions {
+func convertActorCreationOptionsToC(opts *submitter.ActorCreationOptions, actorDesc []string) *C.CActorCreationOptions {
 	if opts == nil {
 		return nil
 	}
@@ -416,18 +424,26 @@ func convertActorCreationOptionsToC(opts *submitter.ActorCreationOptions) *C.CAc
 		cOpts.namespace_ = C.CString(opts.Namespace)
 	}
 
-	if opts.MaxRestarts > 0 {
+	if opts.MaxRestarts != 0 {
+		// max_restarts: 0 means the C++ default (no restarts), -1 means
+		// unlimited restarts (aligned with the Python semantics used by the
+		// original actors, e.g. ServeController max_restarts=-1). Only skip
+		// the zero value so an explicit -1 propagates through.
 		cOpts.max_restarts = C.int(opts.MaxRestarts)
 	}
 
-	if opts.MaxTaskRetries > 0 {
+	if opts.MaxTaskRetries != 0 {
+		// max_task_retries: 0 means the C++ default, -1 means unlimited
+		// retries (aligned with the Python semantics, e.g. ServeController
+		// max_task_retries=-1). Only skip the zero value so an explicit -1
+		// propagates through.
 		cOpts.max_task_retries = C.int(opts.MaxTaskRetries)
 	}
 
 	// max_concurrency: 0 means "use the default" (1 = serialized), -1 means
-	// unlimited and values >= 1 pass through directly. The builder default is
-	// already 1; 0 only occurs from a zero-value struct and must also resolve to
-	// the serialized default (not unlimited) to avoid silent data races.
+	// unlimited, and values >= 1 pass through directly. The builder default is
+	// already 1; 0 only occurs from a zero-value struct and must also resolve
+	// to the serialized default (not unlimited) to avoid silent data races.
 	switch {
 	case opts.MaxConcurrency > 0:
 		cOpts.max_concurrency = C.int(opts.MaxConcurrency)
@@ -435,6 +451,81 @@ func convertActorCreationOptionsToC(opts *submitter.ActorCreationOptions) *C.CAc
 		cOpts.max_concurrency = -1
 	default:
 		cOpts.max_concurrency = 1
+	}
+
+	// lifetime -> is_detached (1 when detached)
+	if opts.Lifetime == submitter.ActorLifetimeDetached {
+		cOpts.is_detached = 1
+	}
+
+	// isAsync -> is_asyncio
+	if opts.IsAsync {
+		cOpts.is_asyncio = 1
+	}
+
+	// maxPendingCalls -> max_pending_calls (default -1 unlimited)
+	cOpts.max_pending_calls = C.int(opts.MaxPendingCalls)
+
+	// Convert concurrency groups to C flat arrays. Each group has a name, a
+	// max concurrency, and a set of 4-element GoFunctionDescriptor string
+	// arrays (module/package/actorType/method). cg_count=0 means no groups
+	// (backward compatible with existing callers). The module/package/actorType
+	// prefix of every method descriptor comes from actorDesc[0..2] (the actor
+	// descriptor's first three elements); methodName comes from each group's
+	// Methods entry.
+	prefix := []string{"", "", ""}
+	if len(actorDesc) >= 3 {
+		prefix[0], prefix[1], prefix[2] = actorDesc[0], actorDesc[1], actorDesc[2]
+	}
+	// MaxCalls <= 0 (0 or -1) resolves to the actor's effective max_concurrency,
+	// mirroring local_mode's CreateActor (task_submitter.go) so cluster and local
+	// behave identically. A non-positive actor max_concurrency falls back to 1
+	// (serialized); a concurrency group has no "unlimited" mode (its C++
+	// max_concurrency is a positive uint32), matching Java.
+	groupMaxCallsFallback := 1
+	if opts.MaxConcurrency > 0 {
+		groupMaxCallsFallback = opts.MaxConcurrency
+	}
+	if len(opts.ConcurrencyGroups) > 0 {
+		cgCount := len(opts.ConcurrencyGroups)
+		cOpts.cg_count = C.int(cgCount)
+		cOpts.cg_names = (**C.char)(C.malloc(C.size_t(unsafe.Sizeof((*C.char)(nil))) * C.size_t(cgCount)))
+		cOpts.cg_max_concurrency = (*C.int)(C.malloc(C.size_t(unsafe.Sizeof(C.int(0))) * C.size_t(cgCount)))
+		cOpts.cg_fd_counts = (*C.int)(C.malloc(C.size_t(unsafe.Sizeof(C.int(0))) * C.size_t(cgCount)))
+		cOpts.cg_fds = (***C.char)(C.malloc(C.size_t(unsafe.Sizeof((**C.char)(nil))) * C.size_t(cgCount)))
+
+		names := (*[1 << 20]*C.char)(unsafe.Pointer(cOpts.cg_names))[:cgCount:cgCount]
+		maxConc := (*[1 << 20]C.int)(unsafe.Pointer(cOpts.cg_max_concurrency))[:cgCount:cgCount]
+		fdCounts := (*[1 << 20]C.int)(unsafe.Pointer(cOpts.cg_fd_counts))[:cgCount:cgCount]
+		fdArrays := (*[1 << 20]**C.char)(unsafe.Pointer(cOpts.cg_fds))[:cgCount:cgCount]
+
+		for i, g := range opts.ConcurrencyGroups {
+			maxCalls := g.MaxCalls
+			if maxCalls <= 0 {
+				maxCalls = groupMaxCallsFallback
+			}
+			names[i] = C.CString(g.Name)
+			maxConc[i] = C.int(maxCalls)
+			fdCounts[i] = C.int(len(g.Methods))
+			if len(g.Methods) == 0 {
+				fdArrays[i] = nil
+				continue
+			}
+			// Each method -> 4-element GoFunctionDescriptor string array
+			// [module, package, actorType, methodName].
+			fdArray := (**C.char)(C.malloc(C.size_t(unsafe.Sizeof((*C.char)(nil))) * C.size_t(len(g.Methods))))
+			methodPtrs := (*[1 << 20]*C.char)(unsafe.Pointer(fdArray))[:len(g.Methods):len(g.Methods)]
+			for j, m := range g.Methods {
+				parts := []string{prefix[0], prefix[1], prefix[2], m}
+				inner := (**C.char)(C.malloc(C.size_t(unsafe.Sizeof((*C.char)(nil))) * 4))
+				innerPtrs := (*[4]*C.char)(unsafe.Pointer(inner))[:4:4]
+				for k, p := range parts {
+					innerPtrs[k] = C.CString(p)
+				}
+				methodPtrs[j] = (*C.char)(unsafe.Pointer(inner))
+			}
+			fdArrays[i] = fdArray
+		}
 	}
 
 	return cOpts
@@ -485,6 +576,33 @@ func freeActorCreationOptions(opts *C.CActorCreationOptions) {
 	}
 	if opts.runtime_env != nil {
 		C.free(unsafe.Pointer(opts.runtime_env))
+	}
+	// Free concurrency group flat arrays: each group's descriptor array
+	// (per-method inner 4-element arrays), then the per-group outer arrays.
+	if opts.cg_count > 0 {
+		cgCount := int(opts.cg_count)
+		names := (*[1 << 20]*C.char)(unsafe.Pointer(opts.cg_names))[:cgCount:cgCount]
+		fdArrays := (*[1 << 20]**C.char)(unsafe.Pointer(opts.cg_fds))[:cgCount:cgCount]
+		fdCounts := (*[1 << 20]C.int)(unsafe.Pointer(opts.cg_fd_counts))[:cgCount:cgCount]
+		for i := 0; i < cgCount; i++ {
+			C.free(unsafe.Pointer(names[i]))
+			innerCount := int(fdCounts[i])
+			if fdArrays[i] != nil && innerCount > 0 {
+				methodPtrs := (*[1 << 20]*C.char)(unsafe.Pointer(fdArrays[i]))[:innerCount:innerCount]
+				for j := 0; j < innerCount; j++ {
+					inner := (*[4]*C.char)(unsafe.Pointer(methodPtrs[j]))[:4:4]
+					for k := 0; k < 4; k++ {
+						C.free(unsafe.Pointer(inner[k]))
+					}
+					C.free(unsafe.Pointer(methodPtrs[j]))
+				}
+				C.free(unsafe.Pointer(fdArrays[i]))
+			}
+		}
+		C.free(unsafe.Pointer(opts.cg_names))
+		C.free(unsafe.Pointer(opts.cg_max_concurrency))
+		C.free(unsafe.Pointer(opts.cg_fd_counts))
+		C.free(unsafe.Pointer(opts.cg_fds))
 	}
 	// Do NOT free(opts) - the struct itself is stack-allocated in Go
 }
@@ -587,7 +705,10 @@ func (s *NativeTaskSubmitter) RemovePlacementGroup(ctx context.Context, id ids.P
 }
 
 // WaitPlacementGroupReady blocks until the placement group is ready or the
-// timeout expires.
+// timeout expires, honouring the caller's context: a cancellation or deadline
+// on ctx aborts the wait (returning ctx.Err()) even though the underlying
+// blocking C++ call may still be running in the background, matching how the
+// GCS client threads cancellation through its runAsync/waitContext helpers.
 func (s *NativeTaskSubmitter) WaitPlacementGroupReady(ctx context.Context, id ids.PlacementGroupID, timeout time.Duration) error {
 	if timeout <= 0 {
 		return fmt.Errorf("wait placement group: timeout must be positive, got %v", timeout)
@@ -601,16 +722,51 @@ func (s *NativeTaskSubmitter) WaitPlacementGroupReady(ctx context.Context, id id
 	} else if seconds > math.MaxInt32 {
 		seconds = math.MaxInt32
 	}
-	cID := C.CString(id.Hex())
-	defer C.free(unsafe.Pointer(cID))
-	var ready C.int
-	var errMsg *C.char
-	status := C.ray_runtime_wait_placement_group_ready(cID, C.int(seconds), &ready, &errMsg)
-	if status == 0 {
-		return cError(errMsg)
+
+	type waitResult struct {
+		ready int
+		ok    bool
+		err   error
 	}
-	if ready == 0 {
-		return fmt.Errorf("placement group %s not ready within %v: %w", id, timeout, submitter.ErrPlacementGroupNotReady)
+	// Check for cancellation before starting the blocking call.
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	return nil
+	resultCh := make(chan waitResult, 1)
+	go func() {
+		// Allocate the C string inside the goroutine so the sole consumer owns
+		// it for its whole lifetime: the outer function returns (and would free
+		// it) on ctx.Done() while this goroutine may still be inside the
+		// blocking C call, which reads the pointer. Owning it here removes that
+		// use-after-free race.
+		cID := C.CString(id.Hex())
+		defer C.free(unsafe.Pointer(cID))
+
+		var ready C.int
+		var errMsg *C.char
+		status := C.ray_runtime_wait_placement_group_ready(cID, C.int(seconds), &ready, &errMsg)
+		var err error
+		if status == 0 {
+			err = cError(errMsg)
+		}
+		select {
+		case <-ctx.Done():
+			// Cancelled; drop the result so the caller observes ctx.Err().
+			return
+		case resultCh <- waitResult{ready: int(ready), ok: status != 0, err: err}:
+		}
+	}()
+
+	select {
+	case result := <-resultCh:
+		if !result.ok {
+			return result.err
+		}
+		if result.ready == 0 {
+			return fmt.Errorf("placement group %s not ready within %v: %w", id, timeout, submitter.ErrPlacementGroupNotReady)
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
