@@ -16,9 +16,16 @@
 package submitter
 
 import (
+	"errors"
+
 	"github.com/ray-project/ray/go/pkg/ids"
 	"github.com/ray-project/ray/go/pkg/runtime/function"
 )
+
+// ErrPlacementGroupNotReady is returned by WaitPlacementGroupReady when the
+// placement group did not become ready within the configured timeout. Callers
+// can use errors.Is to distinguish a timeout from a real failure.
+var ErrPlacementGroupNotReady = errors.New("placement group not ready within timeout")
 
 // ActorHandle represents a handle to an actor.
 // This interface is used to unify NativeActorHandle and ActorHandleImpl[T].

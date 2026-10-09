@@ -26,10 +26,36 @@ package cgo
 #include <stdint.h>
 #include <stdbool.h>
 #include "src/ray/core_worker/lib/go/native_task_submitter.h"
+
+// The prototypes below mirror the extern "C" block of
+// src/ray/core_worker/lib/go/placement_group_ops.h. They are declared directly
+// (instead of #include-ing that C++ header) to keep the cgo preamble C-only;
+// the symbols are resolved at link time against the placement_group_ops
+// library.
+//
+// Return convention (from placement_group_ops.h): 1 on success (pg_id_hex or
+// ready set), 0 on failure with *error set. All output strings are
+// caller-freed with free().
+int ray_runtime_create_placement_group(const char* name,
+                                       const char* bundles_json,
+                                       int strategy,
+                                       char** pg_id_hex,
+                                       char** error);
+
+int ray_runtime_remove_placement_group(const char* pg_id_hex, char** error);
+
+int ray_runtime_wait_placement_group_ready(const char* pg_id_hex,
+                                           int timeout_seconds,
+                                           int* ready,
+                                           char** error);
 */
 import "C"
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"math"
+	"time"
 	"unsafe"
 
 	"github.com/ray-project/ray/go/pkg/ids"
@@ -140,6 +166,10 @@ func (s *NativeTaskSubmitter) CreateActor(
 		return ids.NilActorID(), err
 	}
 
+	// Only register successfully created actors. The C++ ActorManager keeps
+	// handles until process exit, so entries are never removed (kill is only
+	// a state marker, consistent with actor_manager.cc).
+	createdActorIDSet.add(actorID)
 	return actorID, nil
 }
 
@@ -254,6 +284,30 @@ func (s *NativeTaskSubmitter) GetActor(name string, namespace string) (submitter
 		ActorID:  actorID,
 		Language: object.LanguageGo,
 	}, nil
+}
+
+// GetActorHandle retrieves an actor handle by its actor ID.
+//
+// This implementation deviates from us-design-get-actor-handle.md (AC4/Q2):
+// it looks up a process-local registry of actor IDs created by this process
+// instead of the C++ CoreWorker's ActorManager (core_worker.cc is frozen).
+// Consequently:
+//   - Only actors created by THIS process via CreateActor are registered;
+//     actors obtained through GetActor (by name) or deserialized handles are not
+//     registered and report "not found".
+//   - The returned handle always carries LanguageGo.
+//
+// Consistent with Java's NativeTaskSubmitter.getActor(ActorId) -> NativeActorHandle.create.
+func (s *NativeTaskSubmitter) GetActorHandle(actorID ids.ActorID) (submitter.ActorHandle, error) {
+	if actorID.IsNil() {
+		return nil, fmt.Errorf("get actor handle: actor ID is nil")
+	}
+
+	if !createdActorIDSet.contains(actorID) {
+		return nil, fmt.Errorf("get actor handle: actor %s not found", actorID.Hex())
+	}
+
+	return object.NewNativeActorHandle(actorID, object.LanguageGo), nil
 }
 
 // KillActor kills an actor from the driver side.
@@ -461,4 +515,102 @@ func convertCObjectIdArrayToGo(cArray *C.CObjectIdArray) ([]ids.ObjectID, error)
 	C.CNativeCommon_FreeCObjectIdArray(cArray)
 
 	return result, nil
+}
+
+// cError converts a C string (allocated by the C++ boundary, caller-freed with
+// free()) into a Go error, freeing the C string. It is only invoked on failure
+// paths, so a nil or empty C string still yields a non-nil error rather than
+// silently turning a failed cgo call into success.
+func cError(cStr *C.char) error {
+	if cStr == nil {
+		return fmt.Errorf("cgo call failed")
+	}
+	msg := C.GoString(cStr)
+	C.free(unsafe.Pointer(cStr))
+	if msg == "" {
+		return fmt.Errorf("cgo call failed")
+	}
+	return fmt.Errorf("%s", msg)
+}
+
+// serializeBundlesToJSON encodes resource bundles as a JSON array for the C++
+// bridge. The C++ side (PlacementGroupOperations::ParseBundlesJson) decodes the
+// same format.
+func serializeBundlesToJSON(bundles []map[string]float64) (string, error) {
+	b, err := json.Marshal(bundles)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// CreatePlacementGroup creates a placement group and returns its id.
+// The bundles are serialized to JSON and handed to the C++ boundary, which
+// parses them back into per-bundle resource maps.
+func (s *NativeTaskSubmitter) CreatePlacementGroup(ctx context.Context, opts *submitter.PlacementGroupCreationOptions) (ids.PlacementGroupID, error) {
+	if err := opts.Validate(); err != nil {
+		return ids.NilPlacementGroupID(), err
+	}
+	bundlesJSON, err := serializeBundlesToJSON(opts.Bundles)
+	if err != nil {
+		return ids.NilPlacementGroupID(), err
+	}
+	cName := C.CString(opts.Name)
+	defer C.free(unsafe.Pointer(cName))
+	cBundles := C.CString(bundlesJSON)
+	defer C.free(unsafe.Pointer(cBundles))
+
+	var pgIDHex *C.char
+	var errMsg *C.char
+	status := C.ray_runtime_create_placement_group(cName, cBundles, C.int(opts.Strategy), &pgIDHex, &errMsg)
+	if status == 0 {
+		return ids.NilPlacementGroupID(), cError(errMsg)
+	}
+	defer C.free(unsafe.Pointer(pgIDHex))
+	id, err := ids.PlacementGroupIDFromHex(C.GoString(pgIDHex))
+	if err != nil {
+		return ids.NilPlacementGroupID(), err
+	}
+	return id, nil
+}
+
+// RemovePlacementGroup removes an existing placement group by id.
+func (s *NativeTaskSubmitter) RemovePlacementGroup(ctx context.Context, id ids.PlacementGroupID) error {
+	cID := C.CString(id.Hex())
+	defer C.free(unsafe.Pointer(cID))
+	var errMsg *C.char
+	status := C.ray_runtime_remove_placement_group(cID, &errMsg)
+	if status == 0 {
+		return cError(errMsg)
+	}
+	return nil
+}
+
+// WaitPlacementGroupReady blocks until the placement group is ready or the
+// timeout expires.
+func (s *NativeTaskSubmitter) WaitPlacementGroupReady(ctx context.Context, id ids.PlacementGroupID, timeout time.Duration) error {
+	if timeout <= 0 {
+		return fmt.Errorf("wait placement group: timeout must be positive, got %v", timeout)
+	}
+	// The C++ boundary takes an int seconds value; round sub-second timeouts up
+	// (500ms -> 1s instead of a truncated 0) and clamp the upper bound to the
+	// C int range.
+	seconds := int64(math.Ceil(timeout.Seconds()))
+	if seconds < 1 {
+		seconds = 1
+	} else if seconds > math.MaxInt32 {
+		seconds = math.MaxInt32
+	}
+	cID := C.CString(id.Hex())
+	defer C.free(unsafe.Pointer(cID))
+	var ready C.int
+	var errMsg *C.char
+	status := C.ray_runtime_wait_placement_group_ready(cID, C.int(seconds), &ready, &errMsg)
+	if status == 0 {
+		return cError(errMsg)
+	}
+	if ready == 0 {
+		return fmt.Errorf("placement group %s not ready within %v: %w", id, timeout, submitter.ErrPlacementGroupNotReady)
+	}
+	return nil
 }
