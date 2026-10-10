@@ -52,6 +52,32 @@ func TestActorTaskCaller_WithNameAndConcurrencyGroup(t *testing.T) {
 	}
 }
 
+func TestTaskCaller_WithPlacementGroup(t *testing.T) {
+	pg := &PlacementGroup{id: ids.OfPlacementGroupID(ids.NewJobID())}
+	caller := Remote[int](func() int { return 0 })
+
+	if got := caller.WithPlacementGroup(nil, 3); got != caller {
+		t.Fatal("WithPlacementGroup(nil) did not return the same caller")
+	}
+	if caller.options.PlacementGroup != nil {
+		t.Fatalf("options.PlacementGroup = %+v, want nil for a nil group", caller.options.PlacementGroup)
+	}
+
+	got := caller.WithPlacementGroup(pg, 2)
+	if got != caller {
+		t.Fatal("WithPlacementGroup did not return the same caller for chaining")
+	}
+	if caller.options.PlacementGroup == nil {
+		t.Fatal("options.PlacementGroup is nil after WithPlacementGroup")
+	}
+	if caller.options.PlacementGroup.ID != pg.ID() {
+		t.Fatalf("options.PlacementGroup.ID = %v, want %v", caller.options.PlacementGroup.ID, pg.ID())
+	}
+	if caller.options.PlacementGroup.BundleIndex != 2 {
+		t.Fatalf("options.PlacementGroup.BundleIndex = %d, want 2", caller.options.PlacementGroup.BundleIndex)
+	}
+}
+
 func TestActorOptionsNewBuilders(t *testing.T) {
 	type actor struct{}
 	creator := Actor[*actor](nil)

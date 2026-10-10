@@ -171,6 +171,25 @@ func (c *TaskCaller[T]) WithName(name string) *TaskCaller[T] {
 	return c
 }
 
+// WithPlacementGroup binds the task to the given placement group bundle.
+//
+// Parameters:
+//   - group: The placement group to bind to.
+//   - bundleIndex: The index of the bundle to use.
+//
+// Returns:
+//   - *TaskCaller[T]: The same task caller for chaining.
+func (c *TaskCaller[T]) WithPlacementGroup(group *PlacementGroup, bundleIndex int) *TaskCaller[T] {
+	if group == nil {
+		return c
+	}
+	c.options.PlacementGroup = &submitter.PlacementGroupOptions{
+		ID:          group.ID(),
+		BundleIndex: bundleIndex,
+	}
+	return c
+}
+
 // Call submits the task with the provided arguments.
 //
 // Parameters:
@@ -683,6 +702,25 @@ func (c *PythonTaskCaller[T]) WithRuntimeEnv(runtimeEnv string) *PythonTaskCalle
 //   - *PythonTaskCaller[T]: The same task caller for chaining.
 func (c *PythonTaskCaller[T]) WithName(name string) *PythonTaskCaller[T] {
 	c.options.Name = name
+	return c
+}
+
+// WithPlacementGroup binds the Python task to the given placement group bundle.
+//
+// Parameters:
+//   - group: The placement group to bind to.
+//   - bundleIndex: The index of the bundle to use.
+//
+// Returns:
+//   - *PythonTaskCaller[T]: The same task caller for chaining.
+func (c *PythonTaskCaller[T]) WithPlacementGroup(group *PlacementGroup, bundleIndex int) *PythonTaskCaller[T] {
+	if group == nil {
+		return c
+	}
+	c.options.PlacementGroup = &submitter.PlacementGroupOptions{
+		ID:          group.ID(),
+		BundleIndex: bundleIndex,
+	}
 	return c
 }
 
