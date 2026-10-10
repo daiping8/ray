@@ -547,6 +547,14 @@ func (w *Worker) Run() error {
 		return rayerrors.NewInitializationError("runtime", "base.Initialize returned nil handle")
 	}
 
+	// Attach the runtime handle to the public api package. Worker processes
+	// initialize via the internal base.Initialize path (not api.InitWithOptions),
+	// which would otherwise leave api's runtime handle unset. Handle-dependent API
+	// functions (e.g. api.GetRuntimeContext called from a task or actor method,
+	// including code loaded from Go plugins that share this package's state) rely
+	// on it.
+	api.SetRuntimeHandleForWorker(w.handle)
+
 	logger.Info("Ray runtime initialized successfully", "handle", w.handle)
 
 	// Get runtime and check if it's initialized
