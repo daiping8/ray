@@ -152,11 +152,24 @@ func (r recordingRuntime) IsLocalMode() bool                            { return
 func (r recordingRuntime) WasCurrentActorRestarted() bool               { return false }
 func (r recordingRuntime) GetAllNodeInfo() []contract.NodeInfo          { return nil }
 func (r recordingRuntime) GetAllActorInfo() []contract.ActorInfo        { return nil }
-func (r recordingRuntime) GetGpuIds() []string                          { return nil }
+func (r recordingRuntime) GetAllActorInfoByFilter(jobID ids.JobID, state contract.ActorState) []contract.ActorInfo {
+	return nil
+}
+func (r recordingRuntime) GetGpuIds() []string { return nil }
+func (r recordingRuntime) GetResourceIds() map[string][]contract.ResourceValue {
+	return map[string][]contract.ResourceValue{
+		"GPU": {{ResourceID: 0, Capacity: 1.0}},
+		"CPU": {{ResourceID: 3, Capacity: 1.0}},
+	}
+}
 func (r recordingRuntime) GetCurrentActorHandle() submitter.ActorHandle { return nil }
 func (r recordingRuntime) GetObjectStore() object.ObjectStore           { return r.store }
 func (r recordingRuntime) GetTaskSubmitter() submitter.TaskSubmitter    { return nil }
 func (r recordingRuntime) GetFunctionManager() function.Manager         { return nil }
+func (r recordingRuntime) CreateRuntimeEnv() contract.RuntimeEnv { return contract.RuntimeEnv{} }
+func (r recordingRuntime) DeserializeRuntimeEnv(serializedRuntimeEnv string) (contract.RuntimeEnv, error) {
+	return contract.UnmarshalRuntimeEnv(serializedRuntimeEnv)
+}
 
 // recordingHandle is a contract.RuntimeHandle exposing the recording runtime.
 type recordingHandle struct {
