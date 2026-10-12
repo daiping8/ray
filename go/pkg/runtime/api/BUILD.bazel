@@ -66,6 +66,7 @@ go_test(
         "api_test.go",
         "call_convert_arg_test.go",
         "call_test.go",
+        "cpp_call_test.go",
         "example_test.go",
         "handle_release_test.go",
         "method_extractor_test.go",
