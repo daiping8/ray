@@ -254,6 +254,15 @@ func NewWaitResult[T any](ready, unready []*ObjectRef[T]) *WaitResult[T] {
 type ActorHandle interface {
 	// ID returns the actor ID.
 	ID() ids.ActorID
+
+	// Kill kills the actor, treating it as crashed (pending tasks fail).
+	// Equivalent to Java's ActorHandle.kill(): the actor may be restarted
+	// depending on its max_restarts setting.
+	Kill() error
+
+	// KillWithNoRestart kills the actor without allowing restart.
+	// Equivalent to Java's ActorHandle.kill(true).
+	KillWithNoRestart() error
 }
 
 // killHandle kills the actor through KillActor, allowing restart per its

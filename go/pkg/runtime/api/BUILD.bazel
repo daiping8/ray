@@ -61,6 +61,7 @@ go_library(
 go_test(
     name = "api_test",
     srcs = [
+        "actor_get_python_test.go",
         "actor_registration_test.go",
         "api_test.go",
         "call_convert_arg_test.go",
@@ -94,6 +95,27 @@ go_test(
     srcs = ["internal_test.go"],
     embed = [":api"],
     gotags = ["apiinternal"],
+)
+
+# ActorHandle.Kill / KillWithNoRestart instance-method tests, gated behind the
+# "apikill" build tag because storeHandleLocked mutates package-global handle
+# state (currentHandle) that the default api tests assume is unset. It uses its
+# own tag (rather than sharing "apiinternal") because it stores a distinct fake
+# handle type into the shared atomic.Value currentHandle, which would panic
+# ("store of inconsistently typed value") if run in the same test binary as
+# internal_test.go.
+go_test(
+    name = "api_actor_kill_test",
+    srcs = ["actor_kill_test.go"],
+    embed = [":api"],
+    gotags = ["apikill"],
+    deps = [
+        "//go/pkg/ids",
+        "//go/pkg/runtime/contract",
+        "//go/pkg/runtime/function",
+        "//go/pkg/runtime/object",
+        "//go/pkg/runtime/submitter",
+    ],
 )
 
 # Local-mode init tests gated behind the "apilocalinit" build tag because

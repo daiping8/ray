@@ -886,27 +886,46 @@ func (c *PythonActorCreator) Create(args ...interface{}) (*PythonActorHandle, er
 	}
 
 	return &PythonActorHandle{
-		nativeHandle: object.NewNativeActorHandle(actorID, object.LanguagePython),
-		moduleName:   c.functionDescriptor.ModuleName,
-		className:    c.functionDescriptor.ClassName,
+		baseActorHandle: baseActorHandle{
+			nativeHandle: object.NewNativeActorHandle(actorID, object.LanguagePython),
+		},
+		moduleName: c.functionDescriptor.ModuleName,
+		className:  c.functionDescriptor.ClassName,
 	}, nil
+}
+
+// baseActorHandle holds the cross-language actor state shared by
+// CppActorHandle and PythonActorHandle and implements the ActorHandle
+// lifecycle methods, which are identical for both handle types.
+type baseActorHandle struct {
+	// nativeHandle is the underlying cross-language actor handle.
+	nativeHandle *object.NativeActorHandle
+}
+
+// ID returns the actor ID.
+func (h *baseActorHandle) ID() ids.ActorID {
+	return h.nativeHandle.ActorID
+}
+
+// Kill kills the actor, allowing restart.
+func (h *baseActorHandle) Kill() error {
+	return killHandle(h)
+}
+
+// KillWithNoRestart kills the actor without restart.
+func (h *baseActorHandle) KillWithNoRestart() error {
+	return killHandleNoRestart(h)
 }
 
 // PythonActorHandle represents a handle to a Python actor.
 // Method calls are dispatched by method name (Go cannot reflect over Python
 // methods, so the method name is passed as a string).
 type PythonActorHandle struct {
-	// nativeHandle is the underlying cross-language actor handle.
-	nativeHandle *object.NativeActorHandle
+	baseActorHandle
 	// moduleName is the Python module path of the actor class.
 	moduleName string
 	// className is the Python actor class name.
 	className string
-}
-
-// ID returns the actor ID.
-func (h *PythonActorHandle) ID() ids.ActorID {
-	return h.nativeHandle.ActorID
 }
 
 // ActorTask creates a task caller for a Python actor method with an explicit
@@ -1350,6 +1369,16 @@ func NewActorHandleImpl[T any](actorID ids.ActorID) *ActorHandleImpl[T] {
 // This method delegates to the embedded NativeActorHandle.
 func (a *ActorHandleImpl[T]) ID() ids.ActorID {
 	return a.NativeActorHandle.ActorID
+}
+
+// Kill kills the actor, allowing restart (equivalent to Java kill()).
+func (a *ActorHandleImpl[T]) Kill() error {
+	return killHandle(a)
+}
+
+// KillWithNoRestart kills the actor without restart.
+func (a *ActorHandleImpl[T]) KillWithNoRestart() error {
+	return killHandleNoRestart(a)
 }
 
 // Task creates a task caller for an actor method.

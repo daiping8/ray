@@ -127,9 +127,11 @@ func TestPythonActorHandle_ActorTask(t *testing.T) {
 		t.Fatalf("failed to build actor ID: %v", err)
 	}
 	handle := &PythonActorHandle{
-		nativeHandle: &object.NativeActorHandle{
-			ActorID:  actorID,
-			Language: object.LanguagePython,
+		baseActorHandle: baseActorHandle{
+			nativeHandle: &object.NativeActorHandle{
+				ActorID:  actorID,
+				Language: object.LanguagePython,
+			},
 		},
 		moduleName: "calculator",
 		className:  "Calculator",
