@@ -54,6 +54,16 @@ type recordingObjectStore struct {
 	mu      sync.Mutex
 	added   map[string]int
 	removed map[string]int
+
+	deleteCalls []deleteCall
+	// deleteErr, when non-nil, is returned by Delete to simulate a store failure.
+	deleteErr error
+}
+
+// deleteCall records a single ObjectStore.Delete invocation.
+type deleteCall struct {
+	objectIDs []ids.ObjectID
+	localOnly bool
 }
 
 func newRecordingObjectStore() *recordingObjectStore {
@@ -73,6 +83,20 @@ func (s *recordingObjectStore) removedCount(id ids.ObjectID) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.removed[id.Hex()]
+}
+
+// deleteCallCount returns the number of Delete invocations recorded.
+func (s *recordingObjectStore) deleteCallCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.deleteCalls)
+}
+
+// lastDeleteCall returns the most recent recorded Delete invocation.
+func (s *recordingObjectStore) lastDeleteCall() deleteCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.deleteCalls[len(s.deleteCalls)-1]
 }
 
 func (s *recordingObjectStore) PutRaw(obj *object.NativeRayObject) (*ids.ObjectID, error) {
@@ -97,7 +121,16 @@ func (s *recordingObjectStore) WaitWithOptions(opts object.WaitOptions) ([]bool,
 	return nil, nil
 }
 func (s *recordingObjectStore) Delete(objectIDs []*ids.ObjectID, localOnly bool) error {
-	return nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idsCopy := make([]ids.ObjectID, 0, len(objectIDs))
+	for _, oid := range objectIDs {
+		if oid != nil {
+			idsCopy = append(idsCopy, *oid)
+		}
+	}
+	s.deleteCalls = append(s.deleteCalls, deleteCall{objectIDs: idsCopy, localOnly: localOnly})
+	return s.deleteErr
 }
 func (s *recordingObjectStore) AddLocalReference(objectID *ids.ObjectID) error {
 	s.mu.Lock()
