@@ -185,11 +185,7 @@ func (h recordingHandle) Runtime() contract.Runtime { return h.rt }
 func newRecordingHandle() (*recordingObjectStore, recordingHandle) {
 	store := newRecordingObjectStore()
 	handle := recordingHandle{rt: recordingRuntime{store: store}}
-	setHandle(handle)
-	// setHandle does not clear the shutdown flag left set by a previous
-	// clearHandle; the release path under test is only reachable while shutdown
-	// is pending.
-	shutdownComplete.Store(false)
+	storeHandleLocked(handle)
 	return store, handle
 }
 

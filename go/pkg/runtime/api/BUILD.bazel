@@ -33,7 +33,9 @@ go_library(
         "parallel_actor.go",
         "placement_group.go",
         "ray.go",
+        "resource_ids.go",
         "runtime.go",
+        "runtime_env.go",
     ],
     importpath = "github.com/ray-project/ray/go/pkg/runtime/api",
     visibility = ["//visibility:public"],
@@ -50,6 +52,7 @@ go_library(
         "//go/pkg/runtime/plugin",
         "//go/pkg/runtime/submitter",
         "//go/proto",
+        "@org_golang_google_protobuf//encoding/protojson",
         "@org_golang_google_protobuf//proto",
     ],
 )
@@ -129,6 +132,24 @@ go_test(
     ],
 )
 
+# api.RuntimeEnv value-object tests, gated behind the "apiruntimeenv" build tag
+# because storeHandleLocked mutates package-global handle state (currentHandle)
+# that the default api tests assume is unset. Includes task_return_ref_test.go
+# for the shared recordingRuntime helper.
+go_test(
+    name = "api_runtime_env_test",
+    srcs = [
+        "runtime_env_test.go",
+        "task_return_ref_test.go",
+    ],
+    embed = [":api"],
+    gotags = ["apiruntimeenv"],
+    deps = [
+        "//go/pkg/errors",
+        "@com_github_vmihailenco_msgpack_v5//:msgpack",
+    ],
+)
+
 # api placement group facade tests, gated behind the "apipg" build tag because
 # storeHandleLocked mutates package-global handle state (currentHandle) that
 # the default api tests assume is unset. Includes task_return_ref_test.go for
@@ -167,6 +188,30 @@ go_test(
         "//go/pkg/ids",
         "//go/pkg/runtime/local",
         "//go/pkg/runtime/submitter",
+    ],
+)
+
+# api.GetAvailableResourceIds / GetGpuIds tests, gated behind the
+# "apiresourceids" build tag because storeHandleLocked mutates package-global
+# handle state (currentHandle) that the default api tests assume is unset.
+# Includes task_return_ref_test.go for the shared recordingRuntime helper.
+go_test(
+    name = "api_resource_ids_test",
+    srcs = [
+        "resource_ids_test.go",
+        "task_return_ref_test.go",
+    ],
+    embed = [":api"],
+    gotags = ["apiresourceids"],
+    deps = [
+        "//go/pkg/errors",
+        "//go/pkg/ids",
+        "//go/pkg/runtime/contract",
+        "//go/pkg/runtime/function",
+        "//go/pkg/runtime/object",
+        "//go/pkg/runtime/submitter",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_vmihailenco_msgpack_v5//:msgpack",
     ],
 )
 
