@@ -68,6 +68,7 @@ go_test(
         "call_test.go",
         "cpp_call_test.go",
         "example_test.go",
+        "gcs_client_test.go",
         "handle_release_test.go",
         "method_extractor_test.go",
         "object_id_generator_test.go",
@@ -80,11 +81,13 @@ go_test(
     embed = [":api"],
     deps = [
         "//go/pkg/errors",
+        "//go/pkg/gcs",
         "//go/pkg/ids",
         "//go/pkg/runtime/contract",
         "//go/pkg/runtime/function",
         "//go/pkg/runtime/object",
         "//go/pkg/runtime/submitter",
+        "//go/proto",
         "@com_github_stretchr_testify//assert",
         "@com_github_vmihailenco_msgpack_v5//:msgpack",
     ],
@@ -97,6 +100,36 @@ go_test(
     srcs = ["internal_test.go"],
     embed = [":api"],
     gotags = ["apiinternal"],
+)
+
+# worker handle-attach tests, gated behind the "apihandle" build tag because
+# storeHandleLocked mutates package-global handle state.
+go_test(
+    name = "api_handle_test",
+    srcs = ["handle_test.go"],
+    embed = [":api"],
+    gotags = ["apihandle"],
+    deps = [
+        "//go/pkg/errors",
+        "//go/pkg/ids",
+        "//go/pkg/runtime/contract",
+        "//go/pkg/runtime/function",
+        "//go/pkg/runtime/object",
+        "//go/pkg/runtime/submitter",
+    ],
+)
+
+# Re-init lifecycle tests, gated behind the "apireinit" build tag because
+# setHandle mutates package-global handle state (currentHandle) that the default
+# api tests assume is unset.
+go_test(
+    name = "api_reinit_test",
+    srcs = ["handle_reinit_test.go"],
+    embed = [":api"],
+    gotags = ["apireinit"],
+    deps = [
+        "//go/pkg/runtime/contract",
+    ],
 )
 
 # ActorHandle.Kill / KillWithNoRestart instance-method tests, gated behind the
