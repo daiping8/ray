@@ -72,6 +72,7 @@ go_test(
         "method_extractor_test.go",
         "object_id_generator_test.go",
         "object_ref_test.go",
+        "options_test.go",
         "parallel_actor_test.go",
         "python_call_test.go",
         "task_return_ref_test.go",
