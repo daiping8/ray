@@ -488,13 +488,11 @@ func (o *actorOptions[T]) WithNamespace(namespace string) T {
 
 // WithPlacementGroup binds the actor to the given placement group bundle.
 //
-// Actor-level placement-group binding is not supported by any backend in this
-// tree: the native path's C++ ActorCreationOptions has no placement-group
-// fields (task_submitter_ops.cc), and local mode does not schedule against
-// bundles. Instead of silently ignoring the request, the creator records an
-// error that Create surfaces so the caller learns the option was not applied.
-// Note: the internal tree has the same gap (its actor creation path does not
-// consume PlacementGroup either); this loud failure is an OSS-side correction.
+// Actor-level placement-group binding is not supported by the current backends:
+// the native path's C++ ActorCreationOptions has no placement-group fields
+// (task_submitter_ops.cc), and local mode does not schedule against bundles.
+// Instead of silently ignoring the request, the creator records an error that
+// Create surfaces so the caller learns the option was not applied.
 //
 // Parameters:
 //   - group: The placement group to bind to.
@@ -665,12 +663,12 @@ type ActorCreator[T any] struct {
 //   - *ActorCreator[T]: An actor creator builder.
 func Actor[T any](actorClass interface{}) *ActorCreator[T] {
 	// The untyped convenience path (Ray.Actor / api.Instance().Actor, where T is
-	// interface{}) keeps OSS's original behavior: it derives the "<init>"
+	// interface{}) keeps the untyped behavior: it derives the "<init>"
 	// descriptor from the actorClass argument and registers no constructor (the
 	// constructor is expected to be registered explicitly via api.RegisterActorClass,
-	// exactly as the OSS examples do). The typed path (api.Actor[*T], INT-aligned)
-	// registers the constructor and derives the descriptor from the type parameter
-	// T, which is the type-parameter form Java's Ray.actor(Class) maps to.
+	// exactly as the examples do). The typed path (api.Actor[*T]) registers the
+	// constructor and derives the descriptor from the type parameter T, which is
+	// the type-parameter form Java's Ray.actor(Class) maps to.
 	funcDesc := actorDescriptorFor[T](actorClass)
 	if !isInterfaceType[T]() {
 		registerActorConstructor[T](actorClass)
@@ -686,7 +684,7 @@ func Actor[T any](actorClass interface{}) *ActorCreator[T] {
 
 // isInterfaceType reports whether the type parameter T is an interface type
 // (e.g. interface{}). It is used to distinguish the untyped convenience entry
-// point (Ray.Actor / api.Actor[interface{}]) from the typed INT-aligned form
+// point (Ray.Actor / api.Actor[interface{}]) from the typed form
 // (api.Actor[*MyActor]). The zero value of T has no type identity, so T is
 // inspected through a pointer to it: (*interface{}) is a pointer whose element
 // kind is Interface, whereas (*MyActor) is a pointer whose element kind is the
@@ -698,7 +696,7 @@ func isInterfaceType[T any]() bool {
 
 // actorDescriptorFor builds the "<init>" descriptor for an actor creation.
 //
-// When T is a concrete actor type (the INT-aligned typed form) the descriptor
+// When T is a concrete actor type (the typed form) the descriptor
 // is derived from the type parameter so it always matches the constructor that
 // registerActorConstructor[T] registered under the same type. When T is an
 // interface (the OSS untyped convenience path, e.g. Ray.Actor / api.Instance().
@@ -1002,6 +1000,30 @@ func (c *PythonActorCreator) WithNamespace(namespace string) *PythonActorCreator
 	return c
 }
 
+// WithPlacementGroup binds the Python actor to the given placement group bundle.
+//
+// Actor-level placement-group binding is not supported by the current backends,
+// so the creator records an error that Create surfaces rather than silently
+// dropping the binding. It mirrors actorOptions.WithPlacementGroup so the Go,
+// C++ and Python creators all fail loudly on an unsupported actor binding.
+//
+// Parameters:
+//   - group: The placement group to bind to.
+//   - bundleIndex: The index of the bundle to use.
+//
+// Returns:
+//   - *PythonActorCreator: The same actor creator for chaining; Create will
+//     fail if the binding is unsupported.
+func (c *PythonActorCreator) WithPlacementGroup(group *PlacementGroup, bundleIndex int) *PythonActorCreator {
+	if group == nil {
+		return c
+	}
+	if c.err == nil {
+		c.err = errors.NewRuntimeError("create_actor", "actor placement-group binding is not supported on this path")
+	}
+	return c
+}
+
 // WithResources sets the resource requirements for the Python actor.
 //
 // Parameters:
@@ -1295,6 +1317,14 @@ func RemoteCppActor(createFunctionName, className string) *CppActorCreator {
 func (c *CppActorCreator) Create(args ...interface{}) (*CppActorHandle, error) {
 	if c.err != nil {
 		return nil, c.err
+	}
+	// Surface the deferred error recorded by the embedded actorOptions builders
+	// (c.actorOptions.err), e.g. an unsupported actor-level placement-group
+	// binding, so it fails loudly instead of being dropped. c.err above is the
+	// CppActorCreator's own descriptor-validation error, which shadows the
+	// embedded field of the same name.
+	if c.actorOptions.err != nil {
+		return nil, c.actorOptions.err
 	}
 
 	functionArgs := convertArgs(args...)

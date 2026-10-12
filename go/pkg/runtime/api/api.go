@@ -398,6 +398,37 @@ func (r *RuntimeContext) GetAllActorInfo() []ActorInfo {
 	return result
 }
 
+// GetAllActorInfoByFilter returns actor information filtered by job ID and
+// actor state. Consistent with Java's RuntimeContext.getAllActorInfo(JobId,
+// ActorState). A zero jobID (ids.NilJobID()) and ActorStateAny mean "no
+// filter" on the corresponding dimension.
+//
+// Returns:
+//   - []ActorInfo: list of filtered actor information
+func (r *RuntimeContext) GetAllActorInfoByFilter(jobID ids.JobID, state ActorState) []ActorInfo {
+	rt := runtimeOrNil()
+	if rt == nil {
+		return []ActorInfo{}
+	}
+	// Normalize the zero-value JobID{} to NilJobID() so that callers passing
+	// either "unset" representation get the intended "no job filter" behavior.
+	// ids.JobID.IsNil() only recognizes the NilJobID() sentinel, not the Go
+	// zero value {0,0,0,0}, which would otherwise be treated as a real job ID.
+	if jobID == (ids.JobID{}) {
+		jobID = ids.NilJobID()
+	}
+	contractState := contract.ActorStateAny
+	if state != ActorStateAny {
+		contractState = convertAPIToContractActorState(state)
+	}
+	infos := rt.GetAllActorInfoByFilter(jobID, contractState)
+	result := make([]ActorInfo, 0, len(infos))
+	for _, a := range infos {
+		result = append(result, convertToActorInfo(a))
+	}
+	return result
+}
+
 // GetCurrentActorHandle returns the handle of the current actor.
 // Consistent with Java's RuntimeContext.getCurrentActorHandle()
 //
@@ -528,6 +559,28 @@ const (
 	ActorStateRestarting
 	ActorStateDead
 )
+
+// ActorStateAny is a sentinel value indicating no actor-state filter.
+const ActorStateAny ActorState = ActorState(-1)
+
+// convertAPIToContractActorState maps api.ActorState to contract.ActorState.
+// api.ActorState values without a contract.ActorState counterpart (e.g.
+// ActorStateDependenciesUnready) converge to contract.ActorStateDead via the
+// default branch.
+func convertAPIToContractActorState(s ActorState) contract.ActorState {
+	switch s {
+	case ActorStatePendingCreation:
+		return contract.ActorStatePending
+	case ActorStateAlive:
+		return contract.ActorStateAlive
+	case ActorStateRestarting:
+		return contract.ActorStateRestarting
+	case ActorStateDead:
+		return contract.ActorStateDead
+	default:
+		return contract.ActorStateDead
+	}
+}
 
 // Address represents actor address.
 // Consistent with Java's io.ray.api.runtimecontext.Address

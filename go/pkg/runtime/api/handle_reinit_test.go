@@ -37,10 +37,9 @@ func (reinitTestHandle) Runtime() contract.Runtime { return nil }
 // completed Shutdown resets shutdownComplete to false. Without this reset, every
 // ObjectRef finalizer created after the re-init would observe shutdownComplete
 // true and skip RemoveLocalReference, leaking local references in the C++ object
-// store (plasma). THIN-LAYER-001 removed Ray.initOnce in favor of a resettable
-// `initialized` flag, which made re-init possible; shutdownComplete's lifecycle
-// was not reset by the same change (see zerospec/DAIP-1951040/component-design/
-// us-design-thin-layer-001.md).
+// store (plasma). Shutdown clears the `initialized` flag so that Init can run
+// again, so re-init must reset shutdownComplete alongside it to keep the two
+// flags consistent.
 func TestShutdownCompleteResetOnReinit(t *testing.T) {
 	// Simulate a completed shutdown (clearHandle's terminal state).
 	shutdownComplete.Store(true)

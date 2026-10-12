@@ -17,10 +17,26 @@ package api
 import (
 	"testing"
 
+	"github.com/ray-project/ray/go/pkg/errors"
 	"github.com/ray-project/ray/go/pkg/ids"
 	"github.com/ray-project/ray/go/pkg/runtime/function"
 	"github.com/ray-project/ray/go/pkg/runtime/object"
 )
+
+// assertRuntimeErrorState asserts err is a *errors.RuntimeError with the given
+// operation and state. It mirrors the helper of the same name in
+// placement_group_test.go, which is gated behind the "apipg" build tag (a
+// different test target) and so is not visible from this untagged target.
+func assertRuntimeErrorState(t *testing.T, err error, operation, state string) {
+	t.Helper()
+	re, ok := err.(*errors.RuntimeError)
+	if !ok {
+		t.Fatalf("expected *errors.RuntimeError, got %T: %v", err, err)
+	}
+	if re.Operation != operation || re.State != state {
+		t.Fatalf("RuntimeError{operation: %q, state: %q}, want {%q, %q}", re.Operation, re.State, operation, state)
+	}
+}
 
 func TestRemoteCpp(t *testing.T) {
 	caller := RemoteCpp[int]("add", "")
@@ -125,6 +141,19 @@ func TestRemoteCppActor_InvalidFunctionName(t *testing.T) {
 	if err == nil {
 		t.Fatal("Create should return the deferred error")
 	}
+}
+
+func TestRemoteCppActor_WithPlacementGroupFailsLoudly(t *testing.T) {
+	// Actor-level placement-group binding is unsupported on the current
+	// backends, so the builder must fail loudly at Create instead of silently
+	// dropping the binding. The error is recorded by the embedded
+	// actorOptions.WithPlacementGroup, which CppActorCreator.Create surfaces.
+	pg := &PlacementGroup{id: ids.OfPlacementGroupID(ids.NewJobID())}
+	_, err := RemoteCppActor("create_actor", "Calculator").WithPlacementGroup(pg, 0).Create()
+	if err == nil {
+		t.Fatal("expected error for actor placement-group binding, got nil")
+	}
+	assertRuntimeErrorState(t, err, "create_actor", "actor placement-group binding is not supported on this path")
 }
 
 func TestCppActorHandle_FromCreator(t *testing.T) {
