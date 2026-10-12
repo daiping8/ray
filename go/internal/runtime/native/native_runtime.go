@@ -803,12 +803,13 @@ func convertToBaseOptions(apiOpts *options.InitializeOptions) (base.InitializeOp
 			JobConfig: []byte(apiOpts.Job.JobConfig),
 		},
 		Runtime: base.RuntimeOptions{
-			StoreSocket:    apiOpts.Runtime.StoreSocket,
-			RayletSocket:   apiOpts.Runtime.RayletSocket,
-			LogDir:         apiOpts.Runtime.LogDir,
-			StartupToken:   int(apiOpts.Runtime.StartupToken),
-			RuntimeEnvHash: int(apiOpts.Runtime.RuntimeEnvHash),
-			WorkerIDHex:    apiOpts.Runtime.WorkerIDHex,
+			StoreSocket:      apiOpts.Runtime.StoreSocket,
+			RayletSocket:     apiOpts.Runtime.RayletSocket,
+			LogDir:           apiOpts.Runtime.LogDir,
+			StartupToken:     int(apiOpts.Runtime.StartupToken),
+			RuntimeEnvHash:   int(apiOpts.Runtime.RuntimeEnvHash),
+			MetricsAgentPort: base.NormalizeMetricsAgentPort(apiOpts.Runtime.MetricsAgentPort),
+			WorkerIDHex:      apiOpts.Runtime.WorkerIDHex,
 		},
 	}, nil
 }

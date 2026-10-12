@@ -266,3 +266,55 @@ func TestRegisterMetricTypes(t *testing.T) {
 		}
 	}
 }
+
+// zeroHandleErrBackend mimics the cgo backend's failure convention: it reports
+// a registration failure as (0, err). The public package must surface that err
+// regardless of the handle value -- keying the error on handle < 0 would let a
+// 0 handle slip through as "registered" and hide the real cause behind a
+// generic "unknown metric handle" from every later Record.
+type zeroHandleErrBackend struct {
+	mockBackend
+	regErr error
+}
+
+func (z *zeroHandleErrBackend) RegisterCount(name, desc, unit string, tagKeys []string) (int64, error) {
+	return 0, z.regErr
+}
+
+func TestRegistrationErrorSurfacesForNonNegativeHandle(t *testing.T) {
+	sentinel := errors.New("invalid metric name")
+	SetBackend(&zeroHandleErrBackend{regErr: sentinel})
+	defer SetBackend(nil)
+
+	c := NewCount("1-bad-name", "desc", "count", nil)
+	if err := c.Record(map[string]string{}, 1); !errors.Is(err, sentinel) {
+		t.Fatalf("Record on a failed registration should surface the register error, got %v", err)
+	}
+	if err := c.Unregister(); !errors.Is(err, sentinel) {
+		t.Fatalf("Unregister on a failed registration should surface the register error, got %v", err)
+	}
+}
+
+// TestMetricConcurrentRecordUnregister exercises the exported race the pre-lock
+// implementation had: a concurrent Record and Unregister on the same Metric.
+// Run with -race, it fails (read/write of handle) before the RWMutex guard.
+func TestMetricConcurrentRecordUnregister(t *testing.T) {
+	SetBackend(&mockBackend{})
+	defer SetBackend(nil)
+
+	c := NewCount("concurrent", "desc", "count", []string{"k"})
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = c.Record(map[string]string{"k": "v"}, 1)
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = c.Unregister()
+	}()
+	wg.Wait()
+}

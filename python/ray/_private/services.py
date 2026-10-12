@@ -2363,7 +2363,12 @@ def build_go_worker_command(
     # This matches the behavior of Python's start_worker_command
     command.append("RAY_WORKER_DYNAMIC_OPTION_PLACEHOLDER")
 
-    if metrics_agent_port is not None:
+    # 0 is the "unresolved" placeholder the launcher passes for a dynamic-port
+    # cluster (the real port is only known after the node registers with GCS);
+    # forwarding it would only make the worker translate 0 back to "disabled".
+    # Skip it the same way an unset port is skipped, matching the Python
+    # worker, which omits the flag entirely when no agent port is configured.
+    if metrics_agent_port:
         command.append(f"--metrics-agent-port={metrics_agent_port}")
 
     return command

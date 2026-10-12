@@ -127,7 +127,7 @@ func InitializeOptionsFromAPI(opts options.InitializeOptions) (InitializeOptions
 			StartupToken:     int(opts.Runtime.StartupToken),
 			RuntimeEnvHash:   int(opts.Runtime.RuntimeEnvHash),
 			WorkerIDHex:      opts.Runtime.WorkerIDHex,
-			MetricsAgentPort: normalizeMetricsAgentPort(opts.Runtime.MetricsAgentPort),
+			MetricsAgentPort: NormalizeMetricsAgentPort(opts.Runtime.MetricsAgentPort),
 			EnableLogging:    true, // Default to true to enable C++ logging
 		},
 	}
@@ -150,12 +150,12 @@ func InitializeOptionsFromAPI(opts options.InitializeOptions) (InitializeOptions
 	return result, nil
 }
 
-// normalizeMetricsAgentPort converts the zero value (Go struct default) to -1,
+// NormalizeMetricsAgentPort converts the zero value (Go struct default) to -1,
 // which is the C++ semantics for "metrics export disabled". A real metrics agent
 // port is never 0, so 0 unambiguously means "not set". This keeps driver-mode
 // processes (e.g. the dashboard head, which has no metrics agent port source)
 // on the disabled path instead of trying to connect to port 0.
-func normalizeMetricsAgentPort(port int32) int {
+func NormalizeMetricsAgentPort(port int32) int {
 	if port == 0 {
 		return -1
 	}

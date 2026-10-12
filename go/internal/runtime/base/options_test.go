@@ -309,8 +309,8 @@ func TestNormalizeMetricsAgentPort(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := normalizeMetricsAgentPort(tt.port); got != tt.expected {
-				t.Errorf("normalizeMetricsAgentPort(%d) = %d, expected %d", tt.port, got, tt.expected)
+			if got := NormalizeMetricsAgentPort(tt.port); got != tt.expected {
+				t.Errorf("NormalizeMetricsAgentPort(%d) = %d, expected %d", tt.port, got, tt.expected)
 			}
 		})
 	}
