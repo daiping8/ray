@@ -125,6 +125,9 @@ func ConnectClient(opts gcs.ClientOptions) (gcs.Client, error) {
 	// Set the global singleton.
 	gcs.SetClient(client)
 
+	// Register the synchronous GlobalStateAccessor singleton (used by common.GlobalState etc.)
+	gcs.SetGlobalStateAccessor(newStateCgoClient(client))
+
 	return client, nil
 }
 
@@ -176,6 +179,10 @@ func (c *cgoClient) Close() error {
 
 	// Clear the global singleton reference so a closed client cannot be reused.
 	gcs.ClearClient()
+
+	// Symmetrically clear the synchronous GlobalStateAccessor singleton to avoid
+	// returning a stale instance wrapping the closed client
+	gcs.ClearGlobalStateAccessor()
 
 	return nil
 }
