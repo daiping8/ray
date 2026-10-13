@@ -1370,6 +1370,16 @@ type CppActorHandle struct {
 //
 //	ref, err := api.CppActorTask[int](handle, "add", 5).Remote()
 func CppActorTask[T any](handle *CppActorHandle, methodName string, args ...interface{}) *CppActorTaskCaller[T] {
+	// A nil handle is reachable when actor creation failed and its error was
+	// ignored; like the other task constructors, report it through the caller's
+	// deferred error instead of panicking on the dereference.
+	if handle == nil {
+		caller := &CppActorTaskCaller[T]{
+			err: fmt.Errorf("cpp actor handle is nil; actor creation likely failed"),
+		}
+		caller.taskOptions = newTaskOptions[*CppActorTaskCaller[T]](caller, 1)
+		return caller
+	}
 	desc, err := function.NewCppFunctionDescriptor(methodName, cppCallerLanguage, handle.className)
 
 	caller := &CppActorTaskCaller[T]{

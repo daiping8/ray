@@ -256,10 +256,14 @@ func (h *Handle) IsInitialized() bool {
 // proto.Unmarshal then frees each element and the outer arrays with C.free.
 // Consistent with the gcs_client_nodes_get_all pattern in nodes_cgo.go.
 func (h *Handle) GetResourceIds() ([]*proto.ResourceMapEntry, error) {
+	// Hold the shared lock across the CGO call so a concurrent Shutdown (which
+	// takes the write lock before CNativeRuntime_Shutdown) cannot tear down the
+	// C++ core worker between our nil check and the call. Unlike the task
+	// execution loop — which must release the lock so Shutdown can proceed —
+	// this is a short query, and serializing it against shutdown is correct.
 	h.mu.RLock()
-	ptr := h.ptr
-	h.mu.RUnlock()
-	if ptr == nil {
+	defer h.mu.RUnlock()
+	if h.ptr == nil {
 		return nil, fmt.Errorf("NativeRuntime not initialized: call Initialize() first")
 	}
 

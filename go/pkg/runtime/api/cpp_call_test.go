@@ -255,3 +255,16 @@ func TestCppActorTaskCaller_WithConcurrencyGroup(t *testing.T) {
 		t.Errorf("numReturns should be 2 after chaining, got %d", caller.numReturns)
 	}
 }
+
+// TestCppActorTaskNilHandle verifies that a nil handle — reachable when actor
+// creation failed and its error was ignored — produces a caller carrying the
+// deferred error instead of panicking on the handle dereference.
+func TestCppActorTaskNilHandle(t *testing.T) {
+	caller := CppActorTask[int](nil, "add")
+	if caller == nil {
+		t.Fatal("CppActorTask(nil, ...) returned nil caller")
+	}
+	if _, err := caller.Remote(); err == nil {
+		t.Fatal("Remote on nil-handle caller should carry the deferred error")
+	}
+}

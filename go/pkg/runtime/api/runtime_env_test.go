@@ -266,3 +266,23 @@ func TestRuntimeEnvGetConfigUnset(t *testing.T) {
 		t.Fatalf("GetConfig() on empty env = %v, want nil", c)
 	}
 }
+
+// TestRuntimeEnvZeroValueUsable verifies that the zero value of the exported
+// RuntimeEnv struct (var env RuntimeEnv, bypassing NewRuntimeEnv) is usable:
+// every mutator lazily initializes the fields map instead of panicking on a
+// nil map assignment.
+func TestRuntimeEnvZeroValueUsable(t *testing.T) {
+	var env RuntimeEnv
+	if err := env.Set("working_dir", "gs://bucket/dir"); err != nil {
+		t.Fatalf("Set on zero-value RuntimeEnv: %v", err)
+	}
+	if err := env.SetConfig(&RuntimeEnvConfig{SetupTimeoutSeconds: 600}); err != nil {
+		t.Fatalf("SetConfig on zero-value RuntimeEnv: %v", err)
+	}
+	if _, ok := env.Get("working_dir"); !ok {
+		t.Fatal("Get(working_dir) missing after Set on zero-value RuntimeEnv")
+	}
+	if c := env.GetConfig(); c == nil || c.SetupTimeoutSeconds != 600 {
+		t.Fatalf("GetConfig() after SetConfig on zero value = %+v, want timeout 600", c)
+	}
+}

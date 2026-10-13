@@ -326,8 +326,10 @@ type CppFunctionDescriptor struct {
 //
 // Parameters:
 //   - functionName: The C++ function (or actor factory / method) name. Required.
-//   - caller: The calling language (e.g. "GO"). Required, must be non-empty
-//     (the C++ worker treats a non-empty caller as a cross-language call).
+//   - caller: The calling language (e.g. "GO"). An empty caller identifies a
+//     native C++ function descriptor (parsed from the 3-element list form);
+//     Go-side call sites pass the cppCallerLanguage constant so their calls
+//     are treated as cross-language by the C++ worker.
 //   - className: The actor class name. Empty for normal functions.
 func NewCppFunctionDescriptor(functionName, caller, className string) (*CppFunctionDescriptor, error) {
 	if functionName == "" {
@@ -335,9 +337,6 @@ func NewCppFunctionDescriptor(functionName, caller, className string) (*CppFunct
 	}
 	if !isValidCppFunctionName(functionName) {
 		return nil, fmt.Errorf("invalid function name %q: must be a valid C++ identifier (may be namespace/class qualified, e.g. \"ns::Class::method\", or a template instantiation) and contain no whitespace", functionName)
-	}
-	if caller == "" {
-		return nil, fmt.Errorf("caller is required for cross-language C++ calls")
 	}
 
 	return &CppFunctionDescriptor{
@@ -354,13 +353,9 @@ func NewCppFunctionDescriptorOrUnknown(functionName, caller, className string) *
 	if !isValidCppFunctionName(functionName) {
 		validFunctionName = "unknown"
 	}
-	validCaller := caller
-	if caller == "" {
-		validCaller = "unknown"
-	}
 	return &CppFunctionDescriptor{
 		CreateFunctionName: validFunctionName,
-		Caller:             validCaller,
+		Caller:             caller,
 		ClassName:          className,
 	}
 }

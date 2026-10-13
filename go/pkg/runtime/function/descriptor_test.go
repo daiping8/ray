@@ -188,9 +188,15 @@ func TestNewCppFunctionDescriptor_EmptyFunctionName(t *testing.T) {
 }
 
 func TestNewCppFunctionDescriptor_EmptyCaller(t *testing.T) {
+	// An empty caller identifies a native C++ function descriptor (the
+	// 3-element parse form); only Go-side call sites pass a caller, and they
+	// always pass cppCallerLanguage, so the constructor accepts it as-is.
 	desc, err := NewCppFunctionDescriptor("add", "", "")
-	assert.Error(t, err)
-	assert.Nil(t, desc)
+	assert.NoError(t, err)
+	if assert.NotNil(t, desc) {
+		assert.Equal(t, "add", desc.CreateFunctionName)
+		assert.Equal(t, "", desc.Caller)
+	}
 }
 
 func TestNewCppFunctionDescriptor_QualifiedName(t *testing.T) {
@@ -224,7 +230,9 @@ func TestNewCppFunctionDescriptorOrUnknown(t *testing.T) {
 	desc := NewCppFunctionDescriptorOrUnknown("", "", "")
 	assert.NotNil(t, desc)
 	assert.Equal(t, "unknown", desc.CreateFunctionName)
-	assert.Equal(t, "unknown", desc.Caller)
+	// The caller is passed through unchanged: an empty caller is a valid
+	// native-C++ descriptor value, not an invalid field to substitute.
+	assert.Equal(t, "", desc.Caller)
 }
 
 func TestCppFunctionDescriptor_ToList(t *testing.T) {

@@ -97,6 +97,12 @@ func NewRuntimeEnvFromJSON(serializedRuntimeEnv string) (*RuntimeEnv, error) {
 // a JSON-compatible map[string]interface{} (aligned with Java
 // RuntimeEnvImpl.set type checking).
 func (e *RuntimeEnv) Set(name string, value interface{}) error {
+	// Lazy-init so the zero value (var env RuntimeEnv) is usable: RuntimeEnv is
+	// an exported struct, so a user may legally hold one without going through
+	// NewRuntimeEnv, and assigning into a nil map would panic.
+	if e.fields == nil {
+		e.fields = make(map[string]interface{})
+	}
 	if name == runtimeEnvConfigKey {
 		switch v := value.(type) {
 		case *RuntimeEnvConfig:
@@ -214,6 +220,10 @@ func (e *RuntimeEnv) SetConfig(config *RuntimeEnvConfig) error {
 	m, err := runtimeEnvConfigToMap(config)
 	if err != nil {
 		return err
+	}
+	// Same zero-value lazy-init as Set: SetConfig is also a public entry point.
+	if e.fields == nil {
+		e.fields = make(map[string]interface{})
 	}
 	e.fields[runtimeEnvConfigKey] = m
 	return nil
