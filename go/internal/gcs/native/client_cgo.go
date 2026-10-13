@@ -64,10 +64,26 @@ type cgoClient struct {
 }
 
 // getPtr safely returns the C client pointer.
+//
+// Deprecated for new CGO call sites: the returned pointer is only safe as long
+// as the caller keeps the shared lock, and getPtr releases it before returning.
+// Use withPtr instead so a concurrent Close (write lock) cannot destroy the C
+// client mid-call.
 func (c *cgoClient) getPtr() *C.CGcsClient {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.ptr
+}
+
+// withPtr runs f with the client pointer while holding the shared lock, so a
+// concurrent Close (write lock) cannot destroy the C client mid-call.
+func (c *cgoClient) withPtr(f func(ptr *C.CGcsClient) error) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.closed.Load() || c.ptr == nil {
+		return fmt.Errorf("gcs client is closed")
+	}
+	return f(c.ptr)
 }
 
 // ConnectClient creates and connects a GCS client.
@@ -133,31 +149,32 @@ func ConnectClient(opts gcs.ClientOptions) (gcs.Client, error) {
 
 // Address returns the GCS server address.
 func (c *cgoClient) Address() string {
-	if c.closed.Load() {
-		return ""
-	}
-	cAddr := C.ray_gcs_client_address(c.getPtr())
-	if cAddr != nil {
-		defer C.free(unsafe.Pointer(cAddr))
-		return C.GoString(cAddr)
-	}
-	return ""
+	var addr string
+	_ = c.withPtr(func(ptr *C.CGcsClient) error {
+		cAddr := C.ray_gcs_client_address(ptr)
+		if cAddr != nil {
+			defer C.free(unsafe.Pointer(cAddr))
+			addr = C.GoString(cAddr)
+		}
+		return nil
+	})
+	return addr
 }
 
 // ClusterID returns the cluster ID.
 func (c *cgoClient) ClusterID() ids.ClusterID {
-	if c.closed.Load() {
-		return ids.NilClusterID()
-	}
-	cClusterID := C.ray_gcs_client_cluster_id(c.getPtr())
-	if cClusterID != nil {
-		defer C.free(unsafe.Pointer(cClusterID))
-		clusterID, err := ids.ClusterIDFromHex(C.GoString(cClusterID))
-		if err == nil {
-			return clusterID
+	clusterID := ids.NilClusterID()
+	_ = c.withPtr(func(ptr *C.CGcsClient) error {
+		cClusterID := C.ray_gcs_client_cluster_id(ptr)
+		if cClusterID != nil {
+			defer C.free(unsafe.Pointer(cClusterID))
+			if parsed, err := ids.ClusterIDFromHex(C.GoString(cClusterID)); err == nil {
+				clusterID = parsed
+			}
 		}
-	}
-	return ids.NilClusterID()
+		return nil
+	})
+	return clusterID
 }
 
 // IsClosed reports whether the client has been closed.
@@ -193,39 +210,43 @@ func (c *cgoClient) Close() error {
 
 // Get returns the KV value for the given key.
 func (c *cgoClient) Get(ctx context.Context, ns, key string) ([]byte, error) {
-	if c.closed.Load() {
-		return nil, fmt.Errorf("client is closed")
-	}
-
 	// Wrap the blocking CGO call in runAsync.
 	resultCh := runAsync(ctx, func() ([]byte, error) {
 		var cErr *C.char
 		var cData unsafe.Pointer
 		var cSize C.size_t
+		var out []byte
 
 		cNS := C.CString(ns)
 		defer C.free(unsafe.Pointer(cNS))
 		cKey := C.CString(key)
 		defer C.free(unsafe.Pointer(cKey))
 
-		result := C.ray_gcs_client_kv_get(c.getPtr(), cNS, cKey, &cData, &cSize, &cErr)
-		if result != 0 {
-			defer C.free(unsafe.Pointer(cErr))
-			errMsg := C.GoString(cErr)
-			if errMsg == "Key not found" {
-				return nil, gcs.ErrKeyNotFound
+		err := c.withPtr(func(ptr *C.CGcsClient) error {
+			result := C.ray_gcs_client_kv_get(ptr, cNS, cKey, &cData, &cSize, &cErr)
+			if result != 0 {
+				defer C.free(unsafe.Pointer(cErr))
+				errMsg := C.GoString(cErr)
+				if errMsg == "Key not found" {
+					return gcs.ErrKeyNotFound
+				}
+				return fmt.Errorf("kv get failed: %s", errMsg)
 			}
-			return nil, fmt.Errorf("kv get failed: %s", errMsg)
-		}
 
-		if cData == nil || cSize == 0 {
+			if cData == nil || cSize == 0 {
+				C.free(cData)
+				out = []byte{}
+				return nil
+			}
+
+			out = C.GoBytes(cData, C.int(cSize))
 			C.free(cData)
-			return []byte{}, nil
+			return nil
+		})
+		if err != nil {
+			return nil, err
 		}
-
-		data := C.GoBytes(cData, C.int(cSize))
-		C.free(cData)
-		return data, nil
+		return out, nil
 	})
 
 	// Wait for the result, honouring context cancellation.
@@ -235,9 +256,6 @@ func (c *cgoClient) Get(ctx context.Context, ns, key string) ([]byte, error) {
 
 // MultiGet performs a batched KV get.
 func (c *cgoClient) MultiGet(ctx context.Context, ns string, keys []string) (map[string][]byte, error) {
-	if c.closed.Load() {
-		return nil, fmt.Errorf("client is closed")
-	}
 	if len(keys) == 0 {
 		return make(map[string][]byte), nil
 	}
@@ -264,20 +282,25 @@ func (c *cgoClient) MultiGet(ctx context.Context, ns string, keys []string) (map
 	cNS := C.CString(ns)
 	defer C.free(unsafe.Pointer(cNS))
 
-	result := C.ray_gcs_client_kv_multi_get(
-		c.getPtr(),
-		cNS,
-		&cKeys[0],
-		C.int(len(keys)),
-		&cKeysOut,
-		&cValuesOut,
-		&cSizesOut,
-		&cCountOut,
-		nil,
-	)
-
-	if result != 0 {
-		return nil, fmt.Errorf("kv multi get failed: result=%d", result)
+	err := c.withPtr(func(ptr *C.CGcsClient) error {
+		result := C.ray_gcs_client_kv_multi_get(
+			ptr,
+			cNS,
+			&cKeys[0],
+			C.int(len(keys)),
+			&cKeysOut,
+			&cValuesOut,
+			&cSizesOut,
+			&cCountOut,
+			nil,
+		)
+		if result != 0 {
+			return fmt.Errorf("kv multi get failed: result=%d", result)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	resultMap := make(map[string][]byte)
@@ -322,9 +345,6 @@ func (c *cgoClient) MultiGet(ctx context.Context, ns string, keys []string) (map
 
 // Put stores a KV value.
 func (c *cgoClient) Put(ctx context.Context, ns, key string, value []byte, overwrite bool) (bool, error) {
-	if c.closed.Load() {
-		return false, fmt.Errorf("client is closed")
-	}
 	var cErr *C.char
 	var cSuccess C.int
 
@@ -355,10 +375,16 @@ func (c *cgoClient) Put(ctx context.Context, ns, key string, value []byte, overw
 		cOverwrite = 1
 	}
 
-	result := C.ray_gcs_client_kv_put(c.getPtr(), cNS, cKey, cValue, cSize, C.int(cOverwrite), &cSuccess, &cErr)
-	if result != 0 {
-		defer C.free(unsafe.Pointer(cErr))
-		return false, fmt.Errorf("kv put failed: %s", C.GoString(cErr))
+	err := c.withPtr(func(ptr *C.CGcsClient) error {
+		result := C.ray_gcs_client_kv_put(ptr, cNS, cKey, cValue, cSize, C.int(cOverwrite), &cSuccess, &cErr)
+		if result != 0 {
+			defer C.free(unsafe.Pointer(cErr))
+			return fmt.Errorf("kv put failed: %s", C.GoString(cErr))
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
 	}
 
 	return cSuccess != 0, nil
@@ -366,9 +392,6 @@ func (c *cgoClient) Put(ctx context.Context, ns, key string, value []byte, overw
 
 // Del deletes a KV value.
 func (c *cgoClient) Del(ctx context.Context, ns, key string, delByPrefix bool) (int, error) {
-	if c.closed.Load() {
-		return 0, fmt.Errorf("client is closed")
-	}
 	var cErr *C.char
 	var cCount C.int
 
@@ -381,10 +404,16 @@ func (c *cgoClient) Del(ctx context.Context, ns, key string, delByPrefix bool) (
 		cDelByPrefix = 1
 	}
 
-	result := C.ray_gcs_client_kv_del(c.getPtr(), cNS, cKey, C.int(cDelByPrefix), &cCount, &cErr)
-	if result != 0 {
-		defer C.free(unsafe.Pointer(cErr))
-		return 0, fmt.Errorf("kv del failed: %s", C.GoString(cErr))
+	err := c.withPtr(func(ptr *C.CGcsClient) error {
+		result := C.ray_gcs_client_kv_del(ptr, cNS, cKey, C.int(cDelByPrefix), &cCount, &cErr)
+		if result != 0 {
+			defer C.free(unsafe.Pointer(cErr))
+			return fmt.Errorf("kv del failed: %s", C.GoString(cErr))
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
 
 	return int(cCount), nil
@@ -392,9 +421,6 @@ func (c *cgoClient) Del(ctx context.Context, ns, key string, delByPrefix bool) (
 
 // Keys returns the list of keys matching the prefix.
 func (c *cgoClient) Keys(ctx context.Context, ns, prefix string) ([]string, error) {
-	if c.closed.Load() {
-		return nil, fmt.Errorf("client is closed")
-	}
 	var cErr *C.char
 	var cKeys **C.char
 	var cCount C.int
@@ -403,12 +429,6 @@ func (c *cgoClient) Keys(ctx context.Context, ns, prefix string) ([]string, erro
 	defer C.free(unsafe.Pointer(cNS))
 	cPrefix := C.CString(prefix)
 	defer C.free(unsafe.Pointer(cPrefix))
-
-	result := C.ray_gcs_client_kv_keys(c.getPtr(), cNS, cPrefix, &cKeys, &cCount, &cErr)
-	if result != 0 {
-		defer C.free(unsafe.Pointer(cErr))
-		return nil, fmt.Errorf("kv keys failed: %s", C.GoString(cErr))
-	}
 
 	// Use defer to ensure all C memory is released even on panic.
 	defer func() {
@@ -420,6 +440,18 @@ func (c *cgoClient) Keys(ctx context.Context, ns, prefix string) ([]string, erro
 			C.free(unsafe.Pointer(cKeys))
 		}
 	}()
+
+	err := c.withPtr(func(ptr *C.CGcsClient) error {
+		result := C.ray_gcs_client_kv_keys(ptr, cNS, cPrefix, &cKeys, &cCount, &cErr)
+		if result != 0 {
+			defer C.free(unsafe.Pointer(cErr))
+			return fmt.Errorf("kv keys failed: %s", C.GoString(cErr))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	// Convert the C string array into a Go string slice.
 	keys := make([]string, cCount)
@@ -433,9 +465,6 @@ func (c *cgoClient) Keys(ctx context.Context, ns, prefix string) ([]string, erro
 
 // Exists reports whether a key exists.
 func (c *cgoClient) Exists(ctx context.Context, ns, key string) (bool, error) {
-	if c.closed.Load() {
-		return false, fmt.Errorf("client is closed")
-	}
 	var cErr *C.char
 	var cExists C.int
 
@@ -444,10 +473,16 @@ func (c *cgoClient) Exists(ctx context.Context, ns, key string) (bool, error) {
 	cKey := C.CString(key)
 	defer C.free(unsafe.Pointer(cKey))
 
-	result := C.ray_gcs_client_kv_exists(c.getPtr(), cNS, cKey, &cExists, &cErr)
-	if result != 0 {
-		defer C.free(unsafe.Pointer(cErr))
-		return false, fmt.Errorf("kv exists failed: %s", C.GoString(cErr))
+	err := c.withPtr(func(ptr *C.CGcsClient) error {
+		result := C.ray_gcs_client_kv_exists(ptr, cNS, cKey, &cExists, &cErr)
+		if result != 0 {
+			defer C.free(unsafe.Pointer(cErr))
+			return fmt.Errorf("kv exists failed: %s", C.GoString(cErr))
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
 	}
 
 	return cExists != 0, nil
@@ -459,10 +494,6 @@ func (c *cgoClient) Exists(ctx context.Context, ns, key string) (bool, error) {
 
 // GetNodeToConnect returns the node to connect for the given IP address.
 func (c *cgoClient) GetNodeToConnect(ctx context.Context, nodeIpAddress string) (*proto.GcsNodeInfo, error) {
-	if c.closed.Load() {
-		return nil, fmt.Errorf("client is closed")
-	}
-
 	resultCh := runAsync(ctx, func() (*proto.GcsNodeInfo, error) {
 		var cErr *C.char
 		var cSerialized *C.char
@@ -471,13 +502,19 @@ func (c *cgoClient) GetNodeToConnect(ctx context.Context, nodeIpAddress string) 
 		cNodeIpAddress := C.CString(nodeIpAddress)
 		defer C.free(unsafe.Pointer(cNodeIpAddress))
 
-		ok := C.ray_gcs_client_nodes_get_node_to_connect(c.getPtr(), cNodeIpAddress, &cSerialized, &cSize, &cErr)
-		if cErr != nil {
-			defer C.free(unsafe.Pointer(cErr))
-			return nil, fmt.Errorf("get node to connect failed: %s", C.GoString(cErr))
-		}
-		if ok == 0 || cSerialized == nil || cSize == 0 {
-			return nil, fmt.Errorf("no node found for IP address: %s", nodeIpAddress)
+		err := c.withPtr(func(ptr *C.CGcsClient) error {
+			ok := C.ray_gcs_client_nodes_get_node_to_connect(ptr, cNodeIpAddress, &cSerialized, &cSize, &cErr)
+			if cErr != nil {
+				defer C.free(unsafe.Pointer(cErr))
+				return fmt.Errorf("get node to connect failed: %s", C.GoString(cErr))
+			}
+			if ok == 0 || cSerialized == nil || cSize == 0 {
+				return fmt.Errorf("no node found for IP address: %s", nodeIpAddress)
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
 		}
 
 		// Validate the message size.
@@ -506,22 +543,29 @@ func (c *cgoClient) GetNodeToConnect(ctx context.Context, nodeIpAddress string) 
 
 // GetAvailableResources returns the available resources.
 func (c *cgoClient) GetAvailableResources(ctx context.Context, nodeID ids.NodeID) (*proto.AvailableResources, error) {
-	if c.closed.Load() {
-		return nil, fmt.Errorf("client is closed")
-	}
 	cNodeID := C.CString(nodeID.Hex())
 	defer C.free(unsafe.Pointer(cNodeID))
 
 	var cSerialized *C.char
 	var cSize C.int
 	var cErr *C.char
+	var unavailable bool
 
-	ok := C.ray_gcs_client_node_resources_get_available(c.getPtr(), cNodeID, &cSerialized, &cSize, &cErr)
-	if cErr != nil {
-		defer C.free(unsafe.Pointer(cErr))
-		return nil, fmt.Errorf("get available resources failed: %s", C.GoString(cErr))
+	err := c.withPtr(func(ptr *C.CGcsClient) error {
+		ok := C.ray_gcs_client_node_resources_get_available(ptr, cNodeID, &cSerialized, &cSize, &cErr)
+		if cErr != nil {
+			defer C.free(unsafe.Pointer(cErr))
+			return fmt.Errorf("get available resources failed: %s", C.GoString(cErr))
+		}
+		if ok == 0 || cSerialized == nil || cSize == 0 {
+			unavailable = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	if ok == 0 || cSerialized == nil || cSize == 0 {
+	if unavailable {
 		return nil, nil
 	}
 
@@ -545,22 +589,29 @@ func (c *cgoClient) GetAvailableResources(ctx context.Context, nodeID ids.NodeID
 
 // GetTotalResources returns the total resources.
 func (c *cgoClient) GetTotalResources(ctx context.Context, nodeID ids.NodeID) (*proto.TotalResources, error) {
-	if c.closed.Load() {
-		return nil, fmt.Errorf("client is closed")
-	}
 	cNodeID := C.CString(nodeID.Hex())
 	defer C.free(unsafe.Pointer(cNodeID))
 
 	var cSerialized *C.char
 	var cSize C.int
 	var cErr *C.char
+	var unavailable bool
 
-	ok := C.ray_gcs_client_node_resources_get_total(c.getPtr(), cNodeID, &cSerialized, &cSize, &cErr)
-	if cErr != nil {
-		defer C.free(unsafe.Pointer(cErr))
-		return nil, fmt.Errorf("get total resources failed: %s", C.GoString(cErr))
+	err := c.withPtr(func(ptr *C.CGcsClient) error {
+		ok := C.ray_gcs_client_node_resources_get_total(ptr, cNodeID, &cSerialized, &cSize, &cErr)
+		if cErr != nil {
+			defer C.free(unsafe.Pointer(cErr))
+			return fmt.Errorf("get total resources failed: %s", C.GoString(cErr))
+		}
+		if ok == 0 || cSerialized == nil || cSize == 0 {
+			unavailable = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	if ok == 0 || cSerialized == nil || cSize == 0 {
+	if unavailable {
 		return nil, nil
 	}
 
@@ -588,22 +639,29 @@ func (c *cgoClient) GetTotalResources(ctx context.Context, nodeID ids.NodeID) (*
 
 // GetActorInfo returns the actor info.
 func (c *cgoClient) GetActorInfo(ctx context.Context, actorID ids.ActorID) (*proto.ActorTableData, error) {
-	if c.closed.Load() {
-		return nil, fmt.Errorf("client is closed")
-	}
 	cActorID := C.CString(actorID.Hex())
 	defer C.free(unsafe.Pointer(cActorID))
 
 	var cSerialized *C.char
 	var cSize C.int
 	var cErr *C.char
+	var unavailable bool
 
-	ok := C.ray_gcs_client_actors_get_actor_info(c.getPtr(), cActorID, &cSerialized, &cSize, &cErr)
-	if cErr != nil {
-		defer C.free(unsafe.Pointer(cErr))
-		return nil, fmt.Errorf("get actor info failed: %s", C.GoString(cErr))
+	err := c.withPtr(func(ptr *C.CGcsClient) error {
+		ok := C.ray_gcs_client_actors_get_actor_info(ptr, cActorID, &cSerialized, &cSize, &cErr)
+		if cErr != nil {
+			defer C.free(unsafe.Pointer(cErr))
+			return fmt.Errorf("get actor info failed: %s", C.GoString(cErr))
+		}
+		if ok == 0 || cSerialized == nil || cSize == 0 {
+			unavailable = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	if ok == 0 || cSerialized == nil || cSize == 0 {
+	if unavailable {
 		return nil, nil
 	}
 
@@ -631,9 +689,6 @@ func (c *cgoClient) ListActors(ctx context.Context, jobID *ids.JobID) ([]*proto.
 // ListActorsByFilter lists actors filtered by job and state.
 // A nil or empty actorStateName means no state filtering is applied.
 func (c *cgoClient) ListActorsByFilter(ctx context.Context, jobID *ids.JobID, actorStateName *gcs.ActorStateName) ([]*proto.ActorTableData, error) {
-	if c.closed.Load() {
-		return nil, fmt.Errorf("client is closed")
-	}
 	var cJobID *C.char
 	if jobID != nil {
 		cJobID = C.CString(jobID.Hex())
@@ -650,21 +705,31 @@ func (c *cgoClient) ListActorsByFilter(ctx context.Context, jobID *ids.JobID, ac
 	var cSerialized **C.char
 	var cSizes *C.int
 	var cCount C.int
+	var empty bool
 
-	ok := C.ray_gcs_client_actors_get_all_actor_info(
-		c.getPtr(),
-		cJobID,
-		cState,
-		&cSerialized,
-		&cSizes,
-		&cCount,
-		&cErr,
-	)
-	if cErr != nil {
-		defer C.free(unsafe.Pointer(cErr))
-		return nil, fmt.Errorf("list actors failed: %s", C.GoString(cErr))
+	err := c.withPtr(func(ptr *C.CGcsClient) error {
+		ok := C.ray_gcs_client_actors_get_all_actor_info(
+			ptr,
+			cJobID,
+			cState,
+			&cSerialized,
+			&cSizes,
+			&cCount,
+			&cErr,
+		)
+		if cErr != nil {
+			defer C.free(unsafe.Pointer(cErr))
+			return fmt.Errorf("list actors failed: %s", C.GoString(cErr))
+		}
+		if ok == 0 || cSerialized == nil || cCount == 0 {
+			empty = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	if ok == 0 || cSerialized == nil || cCount == 0 {
+	if empty {
 		return []*proto.ActorTableData{}, nil
 	}
 
@@ -725,22 +790,29 @@ func (c *cgoClient) ListActorsByFilter(ctx context.Context, jobID *ids.JobID, ac
 
 // GetJobInfo returns the job info.
 func (c *cgoClient) GetJobInfo(ctx context.Context, jobID ids.JobID) (*proto.JobTableData, error) {
-	if c.closed.Load() {
-		return nil, fmt.Errorf("client is closed")
-	}
 	cJobID := C.CString(jobID.Hex())
 	defer C.free(unsafe.Pointer(cJobID))
 
 	var cSerialized *C.char
 	var cSize C.int
 	var cErr *C.char
+	var unavailable bool
 
-	ok := C.ray_gcs_client_jobs_get_job_info(c.getPtr(), cJobID, &cSerialized, &cSize, &cErr)
-	if cErr != nil {
-		defer C.free(unsafe.Pointer(cErr))
-		return nil, fmt.Errorf("get job info failed: %s", C.GoString(cErr))
+	err := c.withPtr(func(ptr *C.CGcsClient) error {
+		ok := C.ray_gcs_client_jobs_get_job_info(ptr, cJobID, &cSerialized, &cSize, &cErr)
+		if cErr != nil {
+			defer C.free(unsafe.Pointer(cErr))
+			return fmt.Errorf("get job info failed: %s", C.GoString(cErr))
+		}
+		if ok == 0 || cSerialized == nil || cSize == 0 {
+			unavailable = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	if ok == 0 || cSerialized == nil || cSize == 0 {
+	if unavailable {
 		return nil, nil
 	}
 
@@ -758,32 +830,39 @@ func (c *cgoClient) GetJobInfo(ctx context.Context, jobID ids.JobID) (*proto.Job
 
 // ListJobs lists all jobs.
 func (c *cgoClient) ListJobs(ctx context.Context) ([]*proto.JobTableData, error) {
-	if c.closed.Load() {
-		return nil, fmt.Errorf("client is closed")
-	}
 	var cErr *C.char
 	var cSerialized **C.char
 	var cSizes *C.int
 	var cCount C.int
+	var empty bool
 
 	// Fetch the full info by default (do not skip fields).
 	skipSubmission := C.int(0)
 	skipRunningTasks := C.int(0)
 
-	ok := C.ray_gcs_client_jobs_get_all_job_info(
-		c.ptr,
-		skipSubmission,
-		skipRunningTasks,
-		&cSerialized,
-		&cSizes,
-		&cCount,
-		&cErr,
-	)
-	if cErr != nil {
-		defer C.free(unsafe.Pointer(cErr))
-		return nil, fmt.Errorf("list jobs failed: %s", C.GoString(cErr))
+	err := c.withPtr(func(ptr *C.CGcsClient) error {
+		ok := C.ray_gcs_client_jobs_get_all_job_info(
+			ptr,
+			skipSubmission,
+			skipRunningTasks,
+			&cSerialized,
+			&cSizes,
+			&cCount,
+			&cErr,
+		)
+		if cErr != nil {
+			defer C.free(unsafe.Pointer(cErr))
+			return fmt.Errorf("list jobs failed: %s", C.GoString(cErr))
+		}
+		if ok == 0 || cSerialized == nil || cCount == 0 {
+			empty = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	if ok == 0 || cSerialized == nil || cCount == 0 {
+	if empty {
 		return []*proto.JobTableData{}, nil
 	}
 
@@ -835,23 +914,25 @@ func (c *cgoClient) ListJobs(ctx context.Context) ([]*proto.JobTableData, error)
 
 // NextJobID returns the next job ID.
 func (c *cgoClient) NextJobID(ctx context.Context) (ids.JobID, error) {
-	if c.closed.Load() {
-		return ids.NilJobID(), fmt.Errorf("client is closed")
-	}
-
 	resultCh := runAsync(ctx, func() (ids.JobID, error) {
 		var cErr *C.char
 		// JobID hex string is 8 characters (4 bytes) + null terminator
 		// Using 65 bytes to be safe and match the C++ buffer size
 		jobIdHexOut := make([]C.char, 65)
 
-		ok := C.ray_gcs_client_jobs_get_next_job_id(c.getPtr(), &jobIdHexOut[0], &cErr)
-		if cErr != nil {
-			defer C.free(unsafe.Pointer(cErr))
-			return ids.NilJobID(), fmt.Errorf("get next job id failed: %s", C.GoString(cErr))
-		}
-		if ok == 0 {
-			return ids.NilJobID(), fmt.Errorf("failed to get next job id")
+		err := c.withPtr(func(ptr *C.CGcsClient) error {
+			ok := C.ray_gcs_client_jobs_get_next_job_id(ptr, &jobIdHexOut[0], &cErr)
+			if cErr != nil {
+				defer C.free(unsafe.Pointer(cErr))
+				return fmt.Errorf("get next job id failed: %s", C.GoString(cErr))
+			}
+			if ok == 0 {
+				return fmt.Errorf("failed to get next job id")
+			}
+			return nil
+		})
+		if err != nil {
+			return ids.NilJobID(), err
 		}
 
 		jobIdHex := C.GoString(&jobIdHexOut[0])
@@ -872,22 +953,29 @@ func (c *cgoClient) NextJobID(ctx context.Context) (ids.JobID, error) {
 
 // GetWorkerInfo returns the worker info.
 func (c *cgoClient) GetWorkerInfo(ctx context.Context, workerID ids.WorkerID) (*proto.WorkerTableData, error) {
-	if c.closed.Load() {
-		return nil, fmt.Errorf("client is closed")
-	}
 	cWorkerID := C.CString(workerID.Hex())
 	defer C.free(unsafe.Pointer(cWorkerID))
 
 	var cSerialized *C.char
 	var cSize C.int
 	var cErr *C.char
+	var unavailable bool
 
-	ok := C.ray_gcs_client_workers_get_worker_info(c.getPtr(), cWorkerID, &cSerialized, &cSize, &cErr)
-	if cErr != nil {
-		defer C.free(unsafe.Pointer(cErr))
-		return nil, fmt.Errorf("get worker info failed: %s", C.GoString(cErr))
+	err := c.withPtr(func(ptr *C.CGcsClient) error {
+		ok := C.ray_gcs_client_workers_get_worker_info(ptr, cWorkerID, &cSerialized, &cSize, &cErr)
+		if cErr != nil {
+			defer C.free(unsafe.Pointer(cErr))
+			return fmt.Errorf("get worker info failed: %s", C.GoString(cErr))
+		}
+		if ok == 0 || cSerialized == nil || cSize == 0 {
+			unavailable = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	if ok == 0 || cSerialized == nil || cSize == 0 {
+	if unavailable {
 		return nil, nil
 	}
 
@@ -903,26 +991,33 @@ func (c *cgoClient) GetWorkerInfo(ctx context.Context, workerID ids.WorkerID) (*
 
 // ListWorkers lists all workers.
 func (c *cgoClient) ListWorkers(ctx context.Context) ([]*proto.WorkerTableData, error) {
-	if c.closed.Load() {
-		return nil, fmt.Errorf("client is closed")
-	}
 	var cErr *C.char
 	var cSerialized **C.char
 	var cSizes *C.int
 	var cCount C.int
+	var empty bool
 
-	ok := C.ray_gcs_client_workers_get_all_worker_info(
-		c.getPtr(),
-		&cSerialized,
-		&cSizes,
-		&cCount,
-		&cErr,
-	)
-	if cErr != nil {
-		defer C.free(unsafe.Pointer(cErr))
-		return nil, fmt.Errorf("list workers failed: %s", C.GoString(cErr))
+	err := c.withPtr(func(ptr *C.CGcsClient) error {
+		ok := C.ray_gcs_client_workers_get_all_worker_info(
+			ptr,
+			&cSerialized,
+			&cSizes,
+			&cCount,
+			&cErr,
+		)
+		if cErr != nil {
+			defer C.free(unsafe.Pointer(cErr))
+			return fmt.Errorf("list workers failed: %s", C.GoString(cErr))
+		}
+		if ok == 0 || cSerialized == nil || cCount == 0 {
+			empty = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	if ok == 0 || cSerialized == nil || cCount == 0 {
+	if empty {
 		return []*proto.WorkerTableData{}, nil
 	}
 
@@ -978,22 +1073,29 @@ func (c *cgoClient) ListWorkers(ctx context.Context) ([]*proto.WorkerTableData, 
 
 // GetPlacementGroup returns the placement group info.
 func (c *cgoClient) GetPlacementGroup(ctx context.Context, pgID ids.PlacementGroupID) (*proto.PlacementGroupTableData, error) {
-	if c.closed.Load() {
-		return nil, fmt.Errorf("client is closed")
-	}
 	cPgID := C.CString(pgID.Hex())
 	defer C.free(unsafe.Pointer(cPgID))
 
 	var cSerialized *C.char
 	var cSize C.int
 	var cErr *C.char
+	var unavailable bool
 
-	ok := C.ray_gcs_client_placement_groups_get_by_id(c.getPtr(), cPgID, &cSerialized, &cSize, &cErr)
-	if cErr != nil {
-		defer C.free(unsafe.Pointer(cErr))
-		return nil, fmt.Errorf("get placement group failed: %s", C.GoString(cErr))
+	err := c.withPtr(func(ptr *C.CGcsClient) error {
+		ok := C.ray_gcs_client_placement_groups_get_by_id(ptr, cPgID, &cSerialized, &cSize, &cErr)
+		if cErr != nil {
+			defer C.free(unsafe.Pointer(cErr))
+			return fmt.Errorf("get placement group failed: %s", C.GoString(cErr))
+		}
+		if ok == 0 || cSerialized == nil || cSize == 0 {
+			unavailable = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	if ok == 0 || cSerialized == nil || cSize == 0 {
+	if unavailable {
 		return nil, nil
 	}
 
@@ -1009,26 +1111,33 @@ func (c *cgoClient) GetPlacementGroup(ctx context.Context, pgID ids.PlacementGro
 
 // ListPlacementGroups lists all placement groups.
 func (c *cgoClient) ListPlacementGroups(ctx context.Context) ([]*proto.PlacementGroupTableData, error) {
-	if c.closed.Load() {
-		return nil, fmt.Errorf("client is closed")
-	}
 	var cErr *C.char
 	var cSerialized **C.char
 	var cSizes *C.int
 	var cCount C.int
+	var empty bool
 
-	ok := C.ray_gcs_client_placement_groups_get_all(
-		c.getPtr(),
-		&cSerialized,
-		&cSizes,
-		&cCount,
-		&cErr,
-	)
-	if cErr != nil {
-		defer C.free(unsafe.Pointer(cErr))
-		return nil, fmt.Errorf("list placement groups failed: %s", C.GoString(cErr))
+	err := c.withPtr(func(ptr *C.CGcsClient) error {
+		ok := C.ray_gcs_client_placement_groups_get_all(
+			ptr,
+			&cSerialized,
+			&cSizes,
+			&cCount,
+			&cErr,
+		)
+		if cErr != nil {
+			defer C.free(unsafe.Pointer(cErr))
+			return fmt.Errorf("list placement groups failed: %s", C.GoString(cErr))
+		}
+		if ok == 0 || cSerialized == nil || cCount == 0 {
+			empty = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	if ok == 0 || cSerialized == nil || cCount == 0 {
+	if empty {
 		return []*proto.PlacementGroupTableData{}, nil
 	}
 
@@ -1080,27 +1189,36 @@ func (c *cgoClient) ListPlacementGroups(ctx context.Context) ([]*proto.Placement
 
 // getPlacementGroupByNameC invokes the C bridge to look up a placement group by
 // name and namespace, then validates and deserializes the result. The caller
-// owns cName/cNamespace (passed as already-converted C strings; nil namespace
-// makes the C bridge fall back to the "default" namespace). It returns
-// (nil, nil) when no group matches.
+// owns cName/cNamespace (passed as already-converted C strings; the caller must
+// always pass a non-nil namespace). It returns (nil, nil) when no group matches.
 func getPlacementGroupByNameC(cc *cgoClient, cName, cNamespace *C.char) (*proto.PlacementGroupTableData, error) {
 	var cSerialized *C.char
 	var cSize C.int
 	var cErr *C.char
+	var unavailable bool
 
-	ok := C.ray_gcs_client_placement_groups_get_by_name(
-		cc.getPtr(),
-		cName,
-		cNamespace,
-		&cSerialized,
-		&cSize,
-		&cErr,
-	)
-	if cErr != nil {
-		defer C.free(unsafe.Pointer(cErr))
-		return nil, fmt.Errorf("get placement group by name failed: %s", C.GoString(cErr))
+	err := cc.withPtr(func(ptr *C.CGcsClient) error {
+		ok := C.ray_gcs_client_placement_groups_get_by_name(
+			ptr,
+			cName,
+			cNamespace,
+			&cSerialized,
+			&cSize,
+			&cErr,
+		)
+		if cErr != nil {
+			defer C.free(unsafe.Pointer(cErr))
+			return fmt.Errorf("get placement group by name failed: %s", C.GoString(cErr))
+		}
+		if ok == 0 || cSerialized == nil || cSize == 0 {
+			unavailable = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	if ok == 0 || cSerialized == nil || cSize == 0 {
+	if unavailable {
 		return nil, nil
 	}
 
@@ -1121,22 +1239,15 @@ func getPlacementGroupByNameC(cc *cgoClient, cName, cNamespace *C.char) (*proto.
 
 // GetPlacementGroupByName gets placement group info by name and namespace.
 //
-// An empty namespace is passed as an empty string (not NULL) so the C bridge
-// receives "" instead of falling back to its own "default" normalization. The
-// api facade already resolved an empty namespace to the current namespace; a
-// genuinely empty result here must stay empty at the boundary so the caller's
-// namespace decision is not overridden by the C++ side (which maps a NULL
-// namespace to "default", creating an asymmetry with how creation stores the
-// literal namespace).
+// The namespace is always passed to the C bridge as a non-nil C string, so the
+// C++ "default" fallback never silently rewrites an explicit empty namespace
+// (see the client_cgo.go contract on GetPlacementGroupByName).
 func (c *cgoClient) GetPlacementGroupByName(ctx context.Context, name, namespace string) (*proto.PlacementGroupTableData, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("placement group name is required")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
-	}
-	if c.closed.Load() {
-		return nil, fmt.Errorf("client is closed")
 	}
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))

@@ -193,6 +193,9 @@ func (b *CgoMetricBackend) Record(handle int64, value float64, tagKeys, tagValue
 
 	var errMsg *C.char
 	if C.ray_metric_record(C.int64_t(handle), C.double(value), cStringArrayPtr(cKeys), cStringArrayPtr(cValues), C.int(len(tagKeys)), &errMsg) == 0 {
+		// The handle was rejected by the C++ boundary; the cached entry cannot be
+		// used again by a live handle, so free it now rather than stranding it.
+		b.dropCachedTagKeys(handle)
 		return cError(errMsg)
 	}
 	return nil
@@ -200,12 +203,21 @@ func (b *CgoMetricBackend) Record(handle int64, value float64, tagKeys, tagValue
 
 // cachedTagKeys returns the C tag-key array for handle, allocating it on first
 // use and reusing it on every later Record. The keys are fixed at register
-// time, so the array is stable for the handle's lifetime.
+// time, so the array is stable for the handle's lifetime. If the cached entry
+// does not match the requested keys (count or key strings), it is freed and
+// rebuilt instead of being reused, so a mismatched caller never gets stale keys.
 func (b *CgoMetricBackend) cachedTagKeys(handle int64, tagKeys []string) []*C.char {
 	b.tagKeyMu.Lock()
 	defer b.tagKeyMu.Unlock()
-	if cached, ok := b.tagKeyCache[handle]; ok {
-		return cached
+	if b.tagKeyCache != nil {
+		if cached, ok := b.tagKeyCache[handle]; ok {
+			if cachedTagKeysMatch(cached, tagKeys) {
+				return cached
+			}
+			// Mismatch: drop the stale entry and rebuild below.
+			freeCachedTagKeys(cached)
+			delete(b.tagKeyCache, handle)
+		}
 	}
 	cKeys, _ := CStringSlice(tagKeys)
 	if b.tagKeyCache == nil {
@@ -215,21 +227,48 @@ func (b *CgoMetricBackend) cachedTagKeys(handle int64, tagKeys []string) []*C.ch
 	return cKeys
 }
 
+// cachedTagKeysMatch reports whether the cached C string array holds exactly
+// the same tag keys, in order, as want.
+func cachedTagKeysMatch(cached []*C.char, want []string) bool {
+	if len(cached) != len(want) {
+		return false
+	}
+	for i, s := range cached {
+		if s == nil || C.GoString(s) != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// freeCachedTagKeys frees every C string in a cached entry. It takes no lock;
+// callers hold tagKeyMu.
+func freeCachedTagKeys(cached []*C.char) {
+	for _, s := range cached {
+		C.free(unsafe.Pointer(s))
+	}
+}
+
+// dropCachedTagKeys removes and frees the cached tag-key entry for handle.
+func (b *CgoMetricBackend) dropCachedTagKeys(handle int64) {
+	b.tagKeyMu.Lock()
+	defer b.tagKeyMu.Unlock()
+	if cached, ok := b.tagKeyCache[handle]; ok {
+		freeCachedTagKeys(cached)
+		delete(b.tagKeyCache, handle)
+	}
+}
+
 // Unregister releases a registered metric handle and frees the cached tag-key
-// strings for that handle.
+// strings for that handle. The cache entry is freed before the C call so it
+// never outlives the handle: if the C unregister fails, the handle is gone from
+// the backend's point of view and the entry must not be reused.
 func (b *CgoMetricBackend) Unregister(handle int64) error {
+	b.dropCachedTagKeys(handle)
 	var errMsg *C.char
 	if C.ray_metric_unregister(C.int64_t(handle), &errMsg) == 0 {
 		return cError(errMsg)
 	}
-	b.tagKeyMu.Lock()
-	if cached, ok := b.tagKeyCache[handle]; ok {
-		for _, s := range cached {
-			C.free(unsafe.Pointer(s))
-		}
-		delete(b.tagKeyCache, handle)
-	}
-	b.tagKeyMu.Unlock()
 	return nil
 }
 

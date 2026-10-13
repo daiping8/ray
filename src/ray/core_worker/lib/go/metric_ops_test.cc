@@ -277,7 +277,6 @@ TEST(MetricOpsTest, ConcurrentRecordAndUnregisterHammer) {
     EXPECT_EQ(unregisters_ok.load(), 1);
     // Exactly one of the two operations wins the race: either the record lands
     // before the unregister, or it is rejected with the unknown-handle error.
-    EXPECT_GE(records_ok.load(), 0);
     EXPECT_LE(records_ok.load(), 1);
 
     // The handle is always gone afterwards, and a second unregister is rejected.

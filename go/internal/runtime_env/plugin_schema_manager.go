@@ -36,27 +36,72 @@ const (
 )
 
 var (
-	// schemaMu guards concurrent access to schemas and loaded.
+	// schemaMu guards concurrent access to schemas.
 	schemaMu sync.RWMutex
 	// schemas holds the loaded JSON schemas keyed by title.
 	schemas = make(map[string]json.RawMessage)
-	// loaded marks whether the schemas have been loaded.
+	// loadMu serializes the one-time lazy load so concurrent first Validate
+	// calls do not load (and race registering) the schemas twice. It is held
+	// only while loading, never while validating.
+	loadMu sync.Mutex
+	// loaded marks whether the schemas have been loaded. It is read and written
+	// under loadMu.
 	loaded bool
 	// defaultSchemaPath is the path of the default schema directory.
 	defaultSchemaPath string
 )
 
 func init() {
-	// Compute the default schema path: ../../runtime_env/schemas.
-	_, currentFile, _, _ := runtime.Caller(0)
-	baseDir := filepath.Dir(currentFile)
-	defaultSchemaPath = filepath.Join(baseDir, "..", "..", "runtime_env", "schemas")
+	// Resolve the default schema directory. The JSON schemas ship alongside the
+	// source (schemas/), so try the layouts that actually occur at runtime:
+	//  1. next to the executable (an installed/built binary), where the
+	//     schemas directory sits under internal/runtime_env either one level
+	//     up (from a bin/ dir) or directly under the executable dir;
+	//  2. relative to this source file, which covers `go test` and bazel test
+	//     runs that execute from the package directory.
+	// The first existing candidate wins; the historical ../../runtime_env/schemas
+	// value resolved to a directory that never existed and is dropped.
+	execPath, err := os.Executable()
+	if err != nil {
+		execPath = ""
+	}
+	execDir := filepath.Dir(execPath)
+	_, currentFile, _, ok := runtime.Caller(0)
+	sourceDir := ""
+	if ok {
+		sourceDir = filepath.Dir(currentFile)
+	}
+
+	candidates := make([]string, 0, 3)
+	if execPath != "" {
+		candidates = append(candidates,
+			filepath.Join(execDir, "..", "internal", "runtime_env", "schemas"),
+			filepath.Join(execDir, "internal", "runtime_env", "schemas"),
+		)
+	}
+	if sourceDir != "" {
+		candidates = append(candidates, filepath.Join(sourceDir, "schemas"))
+	}
+
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			defaultSchemaPath = candidate
+			return
+		}
+	}
+	// No candidate exists. Keep the last (source-relative) path so the load
+	// error names a concrete location; loadSchemas skips a missing path with a
+	// log line rather than failing hard.
+	if len(candidates) > 0 {
+		defaultSchemaPath = candidates[len(candidates)-1]
+	}
 }
 
 // loadSchemas loads schema files from the given path list.
 // schemaPaths: a list of file or directory paths.
-// It returns an error if any critical operation fails.
-func loadSchemas(schemaPaths []string) error {
+// Loading is best-effort: every failure is logged per path and the walk
+// continues, so there is no error to return.
+func loadSchemas(schemaPaths []string) {
 	for _, path := range schemaPaths {
 		if path == "" {
 			continue
@@ -101,7 +146,6 @@ func loadSchemas(schemaPaths []string) error {
 			}
 		}
 	}
-	return nil
 }
 
 // loadSingleSchema loads a single schema file.
@@ -146,26 +190,24 @@ func loadSingleSchema(filePath string) error {
 }
 
 // loadDefaultSchemas loads the schemas from the default directory.
-// It returns an error if the loading process fails.
-func loadDefaultSchemas() error {
+func loadDefaultSchemas() {
 	log.Log.V(1).Info("Loading schemas from default directory", "path", defaultSchemaPath)
-	return loadSchemas([]string{defaultSchemaPath})
+	loadSchemas([]string{defaultSchemaPath})
 }
 
 // loadSchemasFromEnvVar loads schemas from the RAY_RUNTIME_ENV_PLUGIN_SCHEMAS
 // environment variable.
-// It returns an error if parsing or loading fails.
-func loadSchemasFromEnvVar() error {
+func loadSchemasFromEnvVar() {
 	envValue := os.Getenv(RayRuntimeEnvPluginSchemasEnvVar)
 	if envValue == "" {
-		return nil // The environment variable is not set, which is normal.
+		return // The environment variable is not set, which is normal.
 	}
 
 	log.Log.Info("Loading schemas from environment variable", "env_var", RayRuntimeEnvPluginSchemasEnvVar, "value", envValue)
 
 	// Parse the comma-separated path list.
 	paths := strings.Split(envValue, ",")
-	return loadSchemas(paths)
+	loadSchemas(paths)
 }
 
 // Validate validates a user-provided configuration instance against the named
@@ -175,32 +217,18 @@ func loadSchemasFromEnvVar() error {
 // map[string]interface{}, a slice, or any other type).
 // It returns an error if validation fails and nil on success.
 func Validate(name string, instance interface{}) error {
-	// Lazy load: load all schemas on the first call.
-	// Note: do not hold the lock here to avoid a deadlock.
+	// Lazy load all schemas on the first call.
+	loadMu.Lock()
 	if !loaded {
-		schemaMu.Lock()
-		// Double-checked locking.
-		if !loaded {
-			// Release the lock before loading to avoid holding it during the
-			// load.
-			schemaMu.Unlock()
-
-			// Load the default directory first.
-			if err := loadDefaultSchemas(); err != nil {
-				log.Log.Error(err, "Failed to load default schemas")
-			}
-
-			// Then load the paths given by the environment variable.
-			if err := loadSchemasFromEnvVar(); err != nil {
-				log.Log.Error(err, "Failed to load schemas from environment variable")
-			}
-
-			// Re-acquire the lock and set the loaded flag.
-			schemaMu.Lock()
-			loaded = true
-		}
-		schemaMu.Unlock()
+		// Hold loadMu across the load: it is one-time and fast, and exclusive
+		// loading prevents duplicate schema registration. schemaMu is taken
+		// per-schema inside loadSingleSchema, so loadMu must stay a separate
+		// lock to avoid a self-deadlock.
+		loadDefaultSchemas()
+		loadSchemasFromEnvVar()
+		loaded = true
 	}
+	loadMu.Unlock()
 
 	// Look up the schema.
 	schemaMu.RLock()
@@ -241,9 +269,11 @@ func Validate(name string, instance interface{}) error {
 // Validate call is in flight.
 func Clear() {
 	schemaMu.Lock()
-	defer schemaMu.Unlock()
-
 	schemas = make(map[string]json.RawMessage)
+	schemaMu.Unlock()
+
+	loadMu.Lock()
 	loaded = false
+	loadMu.Unlock()
 	log.Log.V(1).Info("Cleared all loaded schemas")
 }

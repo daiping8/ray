@@ -26,6 +26,11 @@ import (
 
 // Backend is the sink for registered metrics. Implementations may be cgo-backed
 // (CgoMetricBackend) or test doubles.
+//
+// Concurrency contract: implementations must tolerate Record and Unregister
+// being called concurrently for DIFFERENT handles; serialization of same-handle
+// Record/Unregister is the caller's responsibility (metric.Metric enforces it
+// with its own lock).
 type Backend interface {
 	RegisterTagKey(key string) error
 	RegisterCount(name, desc, unit string, tagKeys []string) (int64, error)

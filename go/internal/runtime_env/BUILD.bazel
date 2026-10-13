@@ -30,6 +30,15 @@ config_setting(
     values = {"define": "gotags=cloud"},
 )
 
+# The default JSON schemas read at runtime by plugin_schema_manager.go. Exposed
+# as a filegroup so the packaging targets in //go ship them next to the other
+# Go runtime artifacts (see //go:ray_go_pkg_zip).
+filegroup(
+    name = "schemas",
+    srcs = glob(["schemas/*.json"]),
+    visibility = ["//visibility:public"],
+)
+
 go_library(
     name = "runtime_env",
     srcs = [
@@ -142,6 +151,10 @@ go_test(
         "//conditions:default": ["protocol_test.go"],
     }),
     embed = [":runtime_env"],
+    # The default JSON schemas are read from disk at runtime (resolved relative
+    # to this source file); declare them as test data so bazel keeps them in the
+    # runfiles tree.
+    data = glob(["schemas/*.json"]),
     deps = [
         "//go/internal/common",
         "//go/pkg/gcs",

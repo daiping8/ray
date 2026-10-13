@@ -62,9 +62,11 @@ static int proctitleInit(int nargs) {
     while (s > limit && s[-1] != '\0') s--;
     arg0 = s;
     if (s == limit) {
-      // Reached the lower bound early: this is arg0 only if exactly nargs
-      // strings were found. Walking further would read past the bound.
-      return arg0 != NULL && iter == nargs - 1;
+      // Reached the lower bound early: walking further would read past the
+      // bound, so no argv area is captured. Report failure (0) rather than
+      // claiming success without setting g_proctitle_argv0; proctitleSet then
+      // degrades to prctl-only.
+      return 0;
     }
     end = s;
   }

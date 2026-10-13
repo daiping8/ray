@@ -57,8 +57,7 @@ func TestLoadSchemasFromEnvVar_File(t *testing.T) {
 	os.Setenv(RayRuntimeEnvPluginSchemasEnvVar, tmpFile)
 
 	// Load the schema.
-	err := loadSchemasFromEnvVar()
-	require.NoError(t, err)
+	loadSchemasFromEnvVar()
 
 	// Verify the schema was loaded.
 	schemaMu.RLock()
@@ -255,14 +254,12 @@ func TestConcurrentValidate(t *testing.T) {
 
 func TestLoadSchemas_EmptyPath(t *testing.T) {
 	defer cleanupEnv(t)
-	err := loadSchemas([]string{""})
-	assert.NoError(t, err)
+	loadSchemas([]string{""})
 }
 
 func TestLoadSchemas_NonExistentPath(t *testing.T) {
 	defer cleanupEnv(t)
-	err := loadSchemas([]string{"/non/existent/path/schema.json"})
-	assert.NoError(t, err)
+	loadSchemas([]string{"/non/existent/path/schema.json"})
 }
 
 func TestLoadSchemas_Directory(t *testing.T) {
@@ -289,8 +286,7 @@ func TestLoadSchemas_Directory(t *testing.T) {
 	err = os.WriteFile(file2, []byte(schema2), 0o644)
 	require.NoError(t, err)
 
-	err = loadSchemas([]string{tmpDir})
-	require.NoError(t, err)
+	loadSchemas([]string{tmpDir})
 
 	schemaMu.RLock()
 	_, exists1 := schemas["dir_test_1"]
@@ -308,8 +304,7 @@ func TestLoadSchemas_NonJSONFile(t *testing.T) {
 	err := os.WriteFile(txtFile, []byte("this is not json"), 0o644)
 	require.NoError(t, err)
 
-	err = loadSchemas([]string{tmpDir})
-	assert.NoError(t, err)
+	loadSchemas([]string{tmpDir})
 
 	schemaMu.RLock()
 	count := len(schemas)
@@ -322,8 +317,7 @@ func TestLoadSchemasFromEnvVar_Unset(t *testing.T) {
 
 	os.Unsetenv(RayRuntimeEnvPluginSchemasEnvVar)
 
-	err := loadSchemasFromEnvVar()
-	assert.NoError(t, err)
+	loadSchemasFromEnvVar()
 }
 
 func TestLoadSingleSchema_EmptyTitle(t *testing.T) {
@@ -344,8 +338,7 @@ func TestLoadSingleSchema_EmptyTitle(t *testing.T) {
 func TestLoadDefaultSchemas(t *testing.T) {
 	defer cleanupEnv(t)
 
-	err := loadDefaultSchemas()
-	assert.NoError(t, err)
+	loadDefaultSchemas()
 }
 
 func TestValidate_ArrayInstance(t *testing.T) {
@@ -391,8 +384,7 @@ func TestLoadSchemas_MixedPaths(t *testing.T) {
 	}`
 	singleFile := createTempSchemaFile(t, singleSchema)
 
-	err = loadSchemas([]string{tmpDir, singleFile})
-	require.NoError(t, err)
+	loadSchemas([]string{tmpDir, singleFile})
 
 	schemaMu.RLock()
 	_, exists1 := schemas["mixed_dir_test"]

@@ -62,8 +62,9 @@ func (s *stateCgoClient) cgoClientAccessor() *cgoClient {
 // validateSerializedListBounds validates the serialized array count and pointers
 // returned by the CGO batch calls, ensuring cCount is non-negative and does not
 // exceed the upper limit and cSizes is not nil, consistent with the existing
-// unpacking logic in cgoClient. It only validates and does not free memory;
-// the caller's defer handles unified release of the outer arrays.
+// unpacking logic in cgoClient. It only validates and does not free memory; the
+// caller's defer handles unified release of the outer arrays and, on failure,
+// freeSerializedListElements releases the per-element buffers.
 func validateSerializedListBounds(cSizes *C.int, cCount C.int) error {
 	if cCount < 0 {
 		return fmt.Errorf("invalid cCount: %d", cCount)
@@ -75,6 +76,20 @@ func validateSerializedListBounds(cSizes *C.int, cCount C.int) error {
 		return fmt.Errorf("cSizes is nil")
 	}
 	return nil
+}
+
+// freeSerializedListElements frees the cCount per-element C strings in a batch
+// result, without freeing the outer array. It is used on a bounds failure, where
+// unpackSerializedList is never reached and the elements would otherwise leak.
+// cCount <= 0 is a no-op so it is safe on the negative-count error path.
+func freeSerializedListElements(cSerialized **C.char, cCount C.int) {
+	if cSerialized == nil || cCount <= 0 {
+		return
+	}
+	serializedSlice := unsafe.Slice(cSerialized, int(cCount))
+	for i := 0; i < int(cCount); i++ {
+		C.free(unsafe.Pointer(serializedSlice[i]))
+	}
 }
 
 // messagePtr is a generic constraint: M is a pointer type implementing
@@ -147,9 +162,6 @@ func (s *stateCgoClient) GetAllJobInfo(skipSubmissionJobInfoField, skipIsRunning
 	if cc == nil {
 		return nil, gcs.ErrNotImplemented
 	}
-	if cc.closed.Load() {
-		return nil, fmt.Errorf("client is closed")
-	}
 
 	var skipSubmission C.int
 	if skipSubmissionJobInfoField {
@@ -164,27 +176,41 @@ func (s *stateCgoClient) GetAllJobInfo(skipSubmissionJobInfoField, skipIsRunning
 	var cSerialized **C.char
 	var cSizes *C.int
 	var cCount C.int
+	var empty bool
 
-	ok := C.ray_gcs_client_jobs_get_all_job_info(
-		cc.getPtr(),
-		skipSubmission,
-		skipRunningTasks,
-		&cSerialized,
-		&cSizes,
-		&cCount,
-		&cErr,
-	)
+	err := cc.withPtr(func(ptr *C.CGcsClient) error {
+		ok := C.ray_gcs_client_jobs_get_all_job_info(
+			ptr,
+			skipSubmission,
+			skipRunningTasks,
+			&cSerialized,
+			&cSizes,
+			&cCount,
+			&cErr,
+		)
+		if cErr != nil {
+			defer C.free(unsafe.Pointer(cErr))
+			return fmt.Errorf("get all job info failed: %s", C.GoString(cErr))
+		}
+		if ok == 0 || cSerialized == nil || cCount == 0 {
+			empty = true
+		}
+		return nil
+	})
+	// The outer arrays (char**/int*) are registered for release immediately
+	// after the CGO call, ensuring all return paths (including empty nodes and
+	// error paths) are covered. C.free(nil) is a safe no-op.
 	defer C.free(unsafe.Pointer(cSerialized))
 	defer C.free(unsafe.Pointer(cSizes))
-	if cErr != nil {
-		defer C.free(unsafe.Pointer(cErr))
-		return nil, fmt.Errorf("get all job info failed: %s", C.GoString(cErr))
+	if err != nil {
+		return nil, err
 	}
-	if ok == 0 || cSerialized == nil || cCount == 0 {
+	if empty {
 		return []*proto.JobTableData{}, nil
 	}
 
 	if err := validateSerializedListBounds(cSizes, cCount); err != nil {
+		freeSerializedListElements(cSerialized, cCount)
 		return nil, err
 	}
 
@@ -243,38 +269,46 @@ func (s *stateCgoClient) GetAllAvailableResources() ([]*proto.AvailableResources
 	if cc == nil {
 		return nil, gcs.ErrNotImplemented
 	}
-	if cc.closed.Load() {
-		return nil, fmt.Errorf("client is closed")
-	}
 
 	var cSerialized **C.char
 	var cSizes *C.int
 	var cCount C.int
 	var cErr *C.char
+	var empty bool
 
-	ok := C.ray_gcs_client_node_resources_get_all_available(
-		cc.getPtr(),
-		&cSerialized,
-		&cSizes,
-		&cCount,
-		&cErr,
-	)
+	err := cc.withPtr(func(ptr *C.CGcsClient) error {
+		ok := C.ray_gcs_client_node_resources_get_all_available(
+			ptr,
+			&cSerialized,
+			&cSizes,
+			&cCount,
+			&cErr,
+		)
+		if cErr != nil {
+			defer C.free(unsafe.Pointer(cErr))
+			return fmt.Errorf("get all available resources failed: %s", C.GoString(cErr))
+		}
+		if ok == 0 || cSerialized == nil || cCount == 0 {
+			empty = true
+		}
+		return nil
+	})
 	// The outer arrays (char**/int*) are registered for release immediately
 	// after the CGO call, ensuring all return paths (including empty nodes and
 	// error paths) are covered. C.free(nil) is a safe no-op.
 	defer C.free(unsafe.Pointer(cSerialized))
 	defer C.free(unsafe.Pointer(cSizes))
-	if cErr != nil {
-		defer C.free(unsafe.Pointer(cErr))
-		return nil, fmt.Errorf("get all available resources failed: %s", C.GoString(cErr))
+	if err != nil {
+		return nil, err
 	}
-	if ok == 0 || cSerialized == nil || cCount == 0 {
+	if empty {
 		return []*proto.AvailableResources{}, nil
 	}
 
 	// Boundary validation (cCount non-negative/within limit, cSizes not nil),
 	// consistent with the existing unpacking logic in cgoClient
 	if err := validateSerializedListBounds(cSizes, cCount); err != nil {
+		freeSerializedListElements(cSerialized, cCount)
 		return nil, err
 	}
 
@@ -293,35 +327,43 @@ func (s *stateCgoClient) GetAllTotalResources() ([]*proto.TotalResources, error)
 	if cc == nil {
 		return nil, gcs.ErrNotImplemented
 	}
-	if cc.closed.Load() {
-		return nil, fmt.Errorf("client is closed")
-	}
 
 	var cSerialized **C.char
 	var cSizes *C.int
 	var cCount C.int
 	var cErr *C.char
+	var empty bool
 
-	ok := C.ray_gcs_client_node_resources_get_all_total(
-		cc.getPtr(),
-		&cSerialized,
-		&cSizes,
-		&cCount,
-		&cErr,
-	)
+	err := cc.withPtr(func(ptr *C.CGcsClient) error {
+		ok := C.ray_gcs_client_node_resources_get_all_total(
+			ptr,
+			&cSerialized,
+			&cSizes,
+			&cCount,
+			&cErr,
+		)
+		if cErr != nil {
+			defer C.free(unsafe.Pointer(cErr))
+			return fmt.Errorf("get all total resources failed: %s", C.GoString(cErr))
+		}
+		if ok == 0 || cSerialized == nil || cCount == 0 {
+			empty = true
+		}
+		return nil
+	})
 	defer C.free(unsafe.Pointer(cSerialized))
 	defer C.free(unsafe.Pointer(cSizes))
-	if cErr != nil {
-		defer C.free(unsafe.Pointer(cErr))
-		return nil, fmt.Errorf("get all total resources failed: %s", C.GoString(cErr))
+	if err != nil {
+		return nil, err
 	}
-	if ok == 0 || cSerialized == nil || cCount == 0 {
+	if empty {
 		return []*proto.TotalResources{}, nil
 	}
 
 	// Boundary validation (cCount non-negative/within limit, cSizes not nil),
 	// consistent with the existing unpacking logic in cgoClient
 	if err := validateSerializedListBounds(cSizes, cCount); err != nil {
+		freeSerializedListElements(cSerialized, cCount)
 		return nil, err
 	}
 
@@ -366,9 +408,6 @@ func (s *stateCgoClient) AddWorkerInfo(data *proto.WorkerTableData) (bool, error
 	if cc == nil {
 		return false, gcs.ErrNotImplemented
 	}
-	if cc.closed.Load() {
-		return false, fmt.Errorf("client is closed")
-	}
 	if data == nil {
 		return false, fmt.Errorf("worker data must not be nil")
 	}
@@ -384,19 +423,25 @@ func (s *stateCgoClient) AddWorkerInfo(data *proto.WorkerTableData) (bool, error
 	cData := C.CBytes(serialized)
 	defer C.free(cData)
 
-	ok := C.ray_gcs_client_workers_add_worker_info(
-		cc.getPtr(),
-		(*C.char)(unsafe.Pointer(cData)),
-		C.int(len(serialized)),
-		&cSuccess,
-		&cErr,
-	)
-	if cErr != nil {
-		defer C.free(unsafe.Pointer(cErr))
-		return false, fmt.Errorf("add worker info failed: %s", C.GoString(cErr))
-	}
-	if ok == 0 {
-		return false, fmt.Errorf("add worker info failed: C++ returned ok=0 with no error")
+	err = cc.withPtr(func(ptr *C.CGcsClient) error {
+		ok := C.ray_gcs_client_workers_add_worker_info(
+			ptr,
+			(*C.char)(unsafe.Pointer(cData)),
+			C.int(len(serialized)),
+			&cSuccess,
+			&cErr,
+		)
+		if cErr != nil {
+			defer C.free(unsafe.Pointer(cErr))
+			return fmt.Errorf("add worker info failed: %s", C.GoString(cErr))
+		}
+		if ok == 0 {
+			return fmt.Errorf("add worker info failed: C++ returned ok=0 with no error")
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
 	}
 
 	return cSuccess != 0, nil
@@ -441,16 +486,14 @@ func (s *stateCgoClient) GetPlacementGroupInfo(pgID ids.PlacementGroupID) (*prot
 }
 
 // GetPlacementGroupByName retrieves placement group information by name.
-// It delegates to the shared C bridge helper used by cgoClient. An empty
-// namespace is passed as nil to the C bridge, which falls back to the
-// "default" namespace (matching cgoClient and GlobalStateAccessor semantics).
+// It delegates to the shared C bridge helper used by cgoClient. The namespace
+// is always passed as a non-nil C string (an empty namespace becomes ""), so
+// the C bridge never falls back to its own "default" normalization and an
+// explicit empty namespace is preserved across the boundary.
 func (s *stateCgoClient) GetPlacementGroupByName(name, namespace string) (*proto.PlacementGroupTableData, error) {
 	cc := s.cgoClientAccessor()
 	if cc == nil {
 		return nil, gcs.ErrNotImplemented
-	}
-	if cc.closed.Load() {
-		return nil, fmt.Errorf("client is closed")
 	}
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("placement group name is required")
@@ -459,11 +502,10 @@ func (s *stateCgoClient) GetPlacementGroupByName(name, namespace string) (*proto
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
 
-	var cNamespace *C.char
-	if namespace != "" {
-		cNamespace = C.CString(namespace)
-		defer C.free(unsafe.Pointer(cNamespace))
-	}
+	// Always pass a non-nil namespace so the C++ "default" fallback never
+	// silently rewrites an explicit empty namespace.
+	cNamespace := C.CString(namespace)
+	defer C.free(unsafe.Pointer(cNamespace))
 
 	return getPlacementGroupByNameC(cc, cName, cNamespace)
 }

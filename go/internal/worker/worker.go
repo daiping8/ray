@@ -563,7 +563,11 @@ func (w *Worker) Run() error {
 	// (setproctitle("ray::IDLE") in connect()) and C++'s SetProcTitle after
 	// ray::Init. Doing this before Initialize would destroy the args C++ reads
 	// at startup; doing it here also scrubs sensitive argv (e.g. --redis-password).
-	proctitle.SetTitle(proctitle.IdleTitle())
+	// Only worker processes get the idle title: Python gates this on
+	// mode != SCRIPT_MODE, so a driver keeps its own process title.
+	if w.opts.WorkerType == options.WorkerTypeWorker {
+		proctitle.SetTitle(proctitle.IdleTitle())
+	}
 
 	// Get runtime and check if it's initialized
 	rt := w.handle.Runtime()
