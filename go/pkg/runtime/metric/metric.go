@@ -131,10 +131,12 @@ func (m *Metric) Unregister() error {
 	return nil
 }
 
-// Count is a monotonically increasing counter metric. Values reported via
-// Record map to C++ stats::Count, which aggregates with the opencensus Count()
-// aggregation (each Record call counts as one observation; the value is not
-// summed).
+// Count is a counter metric. The aggregation semantics depend on the cluster's
+// `enable_open_telemetry` config, because Record is forwarded to C++
+// stats::Count: with OpenTelemetry enabled it maps to an accumulating counter
+// (each Record adds its value), while with OpenTelemetry disabled it maps to the
+// opencensus Count() aggregation (each Record counts as one observation,
+// ignoring the value).
 type Count struct{ Metric }
 
 // NewCount registers a count metric.

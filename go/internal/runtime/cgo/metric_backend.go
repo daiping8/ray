@@ -70,6 +70,7 @@ import "C"
 
 import (
 	"fmt"
+	"sync"
 	"unsafe"
 
 	"github.com/ray-project/ray/go/pkg/runtime/metric"
@@ -87,7 +88,13 @@ func RegisterDefaultBackend() {
 // CgoMetricBackend registers and records metrics through the C++ bridge.
 // Its method set mirrors the metric.Backend interface consumed by
 // go/pkg/runtime/metric.
-type CgoMetricBackend struct{}
+type CgoMetricBackend struct {
+	// tagKeyCache memoizes the per-handle C tag-key array so Record does not
+	// re-encode the (immutable) tag keys on every call. tagKeyMu guards the map;
+	// entries are dropped by Unregister so the C strings never leak.
+	tagKeyMu    sync.Mutex
+	tagKeyCache map[int64][]*C.char
+}
 
 // RegisterTagKey registers a tag key that can be used on metrics.
 func (b *CgoMetricBackend) RegisterTagKey(tagKey string) error {
@@ -180,8 +187,7 @@ func (b *CgoMetricBackend) Record(handle int64, value float64, tagKeys, tagValue
 	if len(tagKeys) != len(tagValues) {
 		return fmt.Errorf("tag key/value count mismatch: %d vs %d", len(tagKeys), len(tagValues))
 	}
-	cKeys, freeKeys := CStringSlice(tagKeys)
-	defer freeKeys()
+	cKeys := b.cachedTagKeys(handle, tagKeys)
 	cValues, freeValues := CStringSlice(tagValues)
 	defer freeValues()
 
@@ -192,12 +198,38 @@ func (b *CgoMetricBackend) Record(handle int64, value float64, tagKeys, tagValue
 	return nil
 }
 
-// Unregister releases a registered metric handle.
+// cachedTagKeys returns the C tag-key array for handle, allocating it on first
+// use and reusing it on every later Record. The keys are fixed at register
+// time, so the array is stable for the handle's lifetime.
+func (b *CgoMetricBackend) cachedTagKeys(handle int64, tagKeys []string) []*C.char {
+	b.tagKeyMu.Lock()
+	defer b.tagKeyMu.Unlock()
+	if cached, ok := b.tagKeyCache[handle]; ok {
+		return cached
+	}
+	cKeys, _ := CStringSlice(tagKeys)
+	if b.tagKeyCache == nil {
+		b.tagKeyCache = make(map[int64][]*C.char)
+	}
+	b.tagKeyCache[handle] = cKeys
+	return cKeys
+}
+
+// Unregister releases a registered metric handle and frees the cached tag-key
+// strings for that handle.
 func (b *CgoMetricBackend) Unregister(handle int64) error {
 	var errMsg *C.char
 	if C.ray_metric_unregister(C.int64_t(handle), &errMsg) == 0 {
 		return cError(errMsg)
 	}
+	b.tagKeyMu.Lock()
+	if cached, ok := b.tagKeyCache[handle]; ok {
+		for _, s := range cached {
+			C.free(unsafe.Pointer(s))
+		}
+		delete(b.tagKeyCache, handle)
+	}
+	b.tagKeyMu.Unlock()
 	return nil
 }
 
