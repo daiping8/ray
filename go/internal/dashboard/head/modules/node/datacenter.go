@@ -164,7 +164,19 @@ func (d *DataSource) Start(ctx context.Context) error {
 						continue
 					}
 					d.mu.Lock()
-					d.actors[hex.EncodeToString(a.ActorId)] = a
+					id := hex.EncodeToString(a.ActorId)
+					// For an actor already in the cache, only the state
+					// columns are updated (aligned with Python
+					// _process_updated_actor_table, which copies
+					// ACTOR_TABLE_STATE_COLUMNS into the existing entry).
+					// The GCS publishes ALIVE/DEAD updates with the
+					// class_name/name/required_resources fields empty, and
+					// wholesale replacement would wipe them.
+					if existing, ok := d.actors[id]; ok && a.State != proto.ActorTableData_DEPENDENCIES_UNREADY {
+						copyActorStateColumns(existing, a)
+					} else {
+						d.actors[id] = a
+					}
 					d.mu.Unlock()
 				case err := <-errCh:
 					if status.Code(err) == codes.Unimplemented {
@@ -379,6 +391,27 @@ func (d *DataSource) persistHeadNodeID(ctx context.Context, n *proto.GcsNodeInfo
 	d.registeredHeadNodeID = nodeIDHex
 	d.mu.Unlock()
 	log.Log.Info("persisted head node id", "node_id", nodeIDHex)
+}
+
+// copyActorStateColumns copies the state columns of src into dst, aligned with
+// the Python ACTOR_TABLE_STATE_COLUMNS update in _process_updated_actor_table:
+// only state, address, numRestarts, timestamp, pid, deathCause (the source of
+// the serialized exitDetail), startTime, endTime and reprName change after the
+// actor is created. The caller must hold mu.
+func copyActorStateColumns(dst, src *proto.ActorTableData) {
+	dst.State = src.State
+	if src.Address != nil {
+		dst.Address = src.Address
+	}
+	dst.NumRestarts = src.NumRestarts
+	dst.Timestamp = src.Timestamp
+	dst.Pid = src.Pid
+	if src.DeathCause != nil {
+		dst.DeathCause = src.DeathCause
+	}
+	dst.StartTime = src.StartTime
+	dst.EndTime = src.EndTime
+	dst.ReprName = src.ReprName
 }
 
 // initFromGCS performs the initial full pull of nodes and actors.

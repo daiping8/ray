@@ -66,6 +66,7 @@ go_test(
     srcs = [
         "config_test.go",
         "gcs_client_test.go",
+        "head_test.go",
         "http_server_test.go",
         "lazy_init_test.go",
         "lineage_test.go",
