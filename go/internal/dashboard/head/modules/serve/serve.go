@@ -233,15 +233,21 @@ type VersionResponse struct {
 	RayVersion  string `json:"ray_version"`
 	RayCommit   string `json:"ray_commit"`
 	SessionName string `json:"session_name"`
+	// Runtime is a Go-extension additive field exposing the dashboard head's
+	// own runtime init state for oncall. Python has no such field; consumers
+	// reading the original four keys are unaffected.
+	Runtime *head.RuntimeStatus `json:"runtime,omitempty"`
 }
 
 // handleVersion serves GET /api/ray/version, aligned with ServeHead.get_version.
 func (h *ServeHead) handleVersion(w http.ResponseWriter, r *http.Request) {
+	status := head.RuntimeStatusInfo()
 	head.WriteRawJSON(w, http.StatusOK, &VersionResponse{
 		Version:     currentVersion,
 		RayVersion:  version.RayVersion,
 		RayCommit:   version.RayCommit,
 		SessionName: h.cfg.SessionName,
+		Runtime:     &status,
 	})
 }
 
@@ -400,21 +406,6 @@ func (h *ServeHead) getServeController() (serveController, error) {
 		}
 	}
 	controller, err := getServeControllerFn()
-	if errors.Is(err, rayerrors.ErrRuntimeNotInitialized) {
-		// The Go runtime failed to initialize at startup (e.g. the GCS was not
-		// ready during `ray start`). Lazily initialize it now, mirroring the
-		// Python dashboard's require_initialized which ray.init()s on the first
-		// request, so the head recovers the cross-language runtime without a
-		// restart. EnsureInitialized is a no-op once initialized and serialized
-		// against concurrent calls. Retry once after a successful init; on
-		// failure degrade to "no serve instance" so the caller returns the
-		// empty schema instead of a hard error.
-		if initErr := head.EnsureInitialized(h.cfg); initErr != nil {
-			log.Log.Info("serve: go runtime not initialized, degrade", "err", initErr)
-			return nil, nil
-		}
-		controller, err = getServeControllerFn()
-	}
 	if err != nil {
 		log.Log.V(1).Info("no serve controller available", "err", err)
 		return nil, nil
@@ -458,17 +449,17 @@ func (h *ServeHead) checkServeDependencies() error {
 	}
 	if err := checkServeDepsFn(); err != nil {
 		if errors.Is(err, rayerrors.ErrRuntimeNotInitialized) {
-			if initErr := head.EnsureInitialized(h.cfg); initErr != nil {
-				log.Log.Info("serve: go runtime not initialized, skip dependency check", "err", initErr)
-				return nil
-			}
-			err = checkServeDepsFn()
+			// The Go runtime is not available (the withRuntimeInitialization
+			// middleware would normally have initialized it; when a handler is
+			// reached with the runtime still down, e.g. a direct handler test,
+			// the probe cannot run). Skip the dependency check and let the
+			// caller degrade to "no serve instance" (empty schema) instead of
+			// reporting a misleading 501.
+			return nil
 		}
-		if err != nil {
-			h.depsChecked = true
-			h.depsOK = false
-			return errServeDependenciesNotInstalled
-		}
+		h.depsChecked = true
+		h.depsOK = false
+		return errServeDependenciesNotInstalled
 	}
 	h.depsChecked = true
 	h.depsOK = true
@@ -893,9 +884,7 @@ func (h *ServeHead) startServeController(ctx context.Context, config map[string]
 			return nil, err
 		}
 		if controller, err := getServeControllerFn(); err != nil {
-			if errors.Is(err, rayerrors.ErrRuntimeNotInitialized) {
-				return nil, err
-			}
+			return nil, err
 		} else if controller != nil {
 			log.Log.Info("serve: controller started cross-language")
 			return controller, nil

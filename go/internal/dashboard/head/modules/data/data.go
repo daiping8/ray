@@ -204,20 +204,6 @@ func (h *DataHead) handleDatasets(w http.ResponseWriter, r *http.Request) {
 // flattened, sorted dataset list.
 func (h *DataHead) getDatasetsData(r *http.Request, jobID string) ([]map[string]interface{}, error) {
 	statsActor, err := getStatsActorFn()
-	if errors.Is(err, rayerrors.ErrRuntimeNotInitialized) {
-		// The Go runtime failed to initialize at startup (e.g. the GCS was not
-		// ready during `ray start`). Lazily initialize it now, mirroring the
-		// Python dashboard's require_initialized which ray.init()s on the first
-		// request, so the head recovers the cross-language runtime without a
-		// restart. EnsureInitialized is a no-op once initialized and serialized
-		// against concurrent calls. Retry once after a successful init; on
-		// failure surface 503 (aligned with the Python exception handler).
-		if initErr := head.EnsureInitialized(h.cfg); initErr != nil {
-			log.Log.Info("data: go runtime not initialized, degrade", "err", initErr)
-			return nil, fmt.Errorf("go runtime not initialized: %w", initErr)
-		}
-		statsActor, err = getStatsActorFn()
-	}
 	if err != nil || statsActor == nil {
 		// No stats actor (Ray Data not running): surface 503, aligned with the
 		// Python handler which returns 503 when the stats actor is unavailable.

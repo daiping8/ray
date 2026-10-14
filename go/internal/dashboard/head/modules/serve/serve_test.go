@@ -229,6 +229,12 @@ func TestServeVersion(t *testing.T) {
 	if resp.Version != "4" || resp.RayVersion != "3.0.0.dev0" || resp.RayCommit == "" || resp.SessionName != "session_test" {
 		t.Fatalf("version response = %+v", resp)
 	}
+	if resp.Runtime == nil {
+		t.Fatalf("version response missing additive runtime object: %+v", resp)
+	}
+	if resp.Runtime.Attempts < 0 {
+		t.Fatalf("negative runtime attempt count: %+v", resp.Runtime)
+	}
 }
 
 // TestGetServeControllerNotInitializedDegrade verifies that when the Go

@@ -233,21 +233,6 @@ func (h *TrainHead) getTrainV2StateActor() stateActor {
 		return h.trainV2Actor
 	}
 	actor, err := getTrainV2StateActorFn()
-	if errors.Is(err, rayerrors.ErrRuntimeNotInitialized) {
-		// The Go runtime failed to initialize at startup (e.g. the GCS was not
-		// ready during `ray start`). Lazily initialize it now, mirroring the
-		// Python dashboard's require_initialized which ray.init()s on the first
-		// request, so the head recovers the cross-language runtime without a
-		// restart. EnsureInitialized is a no-op once initialized and serialized
-		// against concurrent calls. Retry once after a successful init; on
-		// failure degrade to nil so the handler surfaces "Train state data is
-		// not available".
-		if initErr := head.EnsureInitialized(h.cfg); initErr != nil {
-			log.Log.Info("train: go runtime not initialized, degrade", "err", initErr)
-			return nil
-		}
-		actor, err = getTrainV2StateActorFn()
-	}
 	if err != nil {
 		log.Log.Info("no train v2 state actor available", "err", err)
 		return nil
@@ -266,21 +251,6 @@ func (h *TrainHead) getTrainV1StateActor() stateActor {
 		return h.trainV1Actor
 	}
 	actor, err := getTrainV1StateActorFn()
-	if errors.Is(err, rayerrors.ErrRuntimeNotInitialized) {
-		// The Go runtime failed to initialize at startup (e.g. the GCS was not
-		// ready during `ray start`). Lazily initialize it now, mirroring the
-		// Python dashboard's require_initialized which ray.init()s on the first
-		// request, so the head recovers the cross-language runtime without a
-		// restart. EnsureInitialized is a no-op once initialized and serialized
-		// against concurrent calls. Retry once after a successful init; on
-		// failure degrade to nil so the handler surfaces "Train state data is
-		// not available".
-		if initErr := head.EnsureInitialized(h.cfg); initErr != nil {
-			log.Log.Info("train: go runtime not initialized, degrade", "err", initErr)
-			return nil
-		}
-		actor, err = getTrainV1StateActorFn()
-	}
 	if err != nil {
 		log.Log.V(1).Info("no train v1 state actor available", "err", err)
 		return nil
