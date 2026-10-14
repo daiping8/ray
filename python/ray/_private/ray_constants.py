@@ -445,6 +445,9 @@ RAY_DISABLE_WORKER_LOG_PREFIX = env_bool("RAY_DISABLE_WORKER_LOG_PREFIX", False)
 # How many seconds of messages to buffer for log deduplication.
 RAY_DEDUP_LOGS_AGG_WINDOW_S = env_integer("RAY_DEDUP_LOGS_AGG_WINDOW_S", 5)
 
+# Controls whether the worker setup step uses the Go implementation
+# (raygo setup_worker) instead of the Python setup_worker.py, for ALL
+# languages (PYTHON/CPP/JAVA/GO). Off by default (Python implementation).
 # Enable launching Go workers and registering the Go language with the raylet.
 # When enabled, the raylet is started with a --go_worker_command so that Go
 # drivers can register and Go workers can be spawned.
