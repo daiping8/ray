@@ -192,21 +192,28 @@ func readFileFrom(f *os.File, size, mtime, position int64, nLines, lengthLimit i
 			break
 		}
 		if sep < 0 {
-			// Line exceeds lengthLimit: drop it and skip to its end (the next
-			// newline, or EOF) so the cursor advances.
-			truncatedSize := min(100, lengthLimit)
-			sample := make([]byte, truncatedSize)
-			if _, err := f.ReadAt(sample, start); err == nil {
-				log.Log.Error(nil, "Ignored long string in event log file", "sample", string(sample))
-			}
+			// No newline within lengthLimit: either the line is genuinely
+			// overlong, or the file ends mid-line (a half-written tail line,
+			// or a final line with no trailing newline). Distinguish with an
+			// unbounded search, matching python event_utils._read_file, which
+			// stops at the first missing newline and leaves the cursor
+			// unchanged so a half-written line is re-read in full once the
+			// writer completes it.
 			end, err := findNewline(f, start, -1, rem)
 			if err != nil {
 				break
 			}
 			if end < 0 {
-				// Unterminated tail line: advance the cursor to the file end.
-				start = size
+				// Unterminated tail line: keep the cursor at start; the line
+				// is re-read (in full) on the next scan after the newline
+				// arrives. Never reported, never skipped.
 				break
+			}
+			// Genuinely overlong line: drop it and skip past its newline.
+			truncatedSize := min(100, lengthLimit)
+			sample := make([]byte, truncatedSize)
+			if _, err := f.ReadAt(sample, start); err == nil {
+				log.Log.Error(nil, "Ignored long string in event log file", "sample", string(sample))
 			}
 			start = end + 1
 			continue

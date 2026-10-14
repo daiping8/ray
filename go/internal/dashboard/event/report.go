@@ -22,6 +22,8 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/ray-project/ray/go/internal/common"
@@ -42,6 +44,13 @@ func (e *EventAgent) resolveDashboardAddress(ctx context.Context) (string, error
 		rpcCancel()
 		if err == nil && len(data) > 0 {
 			addr := string(data)
+			// The Python head writes the KV value as a bare host:port
+			// (build_address), while the Go head writes a full URL. Normalize a
+			// scheme-less address so the report request has a parseable URL
+			// (python event_agent normalizes the same way after reading the KV).
+			if !strings.Contains(addr, "://") {
+				addr = "http://" + addr
+			}
 			e.dashboardHTTPAddress.Store(addr)
 			e.addressResolved.Store(true)
 			log.Log.Info("Got dashboard http address from GCS", "address", addr)
@@ -194,6 +203,14 @@ func (e *EventAgent) postOnce(ctx context.Context, addr string, body []byte) err
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// /report_events is not a public head path, so on RAY_AUTH_MODE=token
+	// clusters every report needs the bearer token (python event_agent sends
+	// get_auth_headers_if_auth_enabled({}) on the report request).
+	if os.Getenv("RAY_AUTH_MODE") == "token" {
+		if token := reportAuthToken(); token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
@@ -206,6 +223,29 @@ func (e *EventAgent) postOnce(ctx context.Context, addr string, body []byte) err
 		return errors.New("report events request failed: " + resp.Status)
 	}
 	return nil
+}
+
+// reportAuthToken returns the bearer token for report requests, mirroring the
+// head's token precedence (RAY_AUTH_TOKEN env, then the first line of
+// RAY_AUTH_TOKEN_PATH). Empty when neither is set.
+func reportAuthToken() string {
+	if env := os.Getenv("RAY_AUTH_TOKEN"); env != "" {
+		return env
+	}
+	path := os.Getenv("RAY_AUTH_TOKEN_PATH")
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 // getInternalStates returns the module internal states: 204 No Content until

@@ -130,6 +130,90 @@ func TestReadFileIgnoresLongLine(t *testing.T) {
 	}
 }
 
+// TestReadFileHalfWrittenTailNotLost checks that an unterminated tail line (a
+// half-written line with no trailing newline) is not consumed: the cursor stays
+// before it so the full line is reported exactly once after the writer
+// completes it, matching python event_utils._read_file (sep == -1 -> break with
+// the cursor unchanged).
+func TestReadFileHalfWrittenTailNotLost(t *testing.T) {
+	dir := t.TempDir()
+	path := newEventFile(t, dir, "event_COMMON.log")
+	const limit = 20
+	// A complete line followed by a half-written line with no trailing newline.
+	if err := os.WriteFile(path, []byte("complete\nhal"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := f.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := readFileFrom(f, info.Size(), info.ModTime().UnixNano(), 0, eventReadLineCountLimit, limit)
+	f.Close()
+	if len(first.lines) != 1 || first.lines[0] != "complete" {
+		t.Fatalf("first read lines = %v, want only [complete]", first.lines)
+	}
+	if first.position != int64(len("complete\n")) {
+		t.Errorf("first read position = %d, want %d (cursor must stay before the half-written tail)",
+			first.position, len("complete\n"))
+	}
+
+	// The writer completes the line.
+	if err := os.WriteFile(path, []byte("complete\nhalf-line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f2, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f2.Close()
+	info2, err := f2.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := readFileFrom(f2, info2.Size(), info2.ModTime().UnixNano(), first.position,
+		eventReadLineCountLimit, limit)
+	if len(second.lines) != 1 || second.lines[0] != "half-line" {
+		t.Errorf("second read lines = %v, want [half-line] reported in full", second.lines)
+	}
+}
+
+// TestReadFileUnterminatedTailStaysPut checks that a file ending in a permanent
+// unterminated tail never reports the partial line and leaves the read position
+// stable across repeated scans (no growth, no cursor advance).
+func TestReadFileUnterminatedTailStaysPut(t *testing.T) {
+	dir := t.TempDir()
+	path := newEventFile(t, dir, "event_COMMON.log")
+	const limit = 20
+	if err := os.WriteFile(path, []byte("no-newline-at-all"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	position := int64(0)
+	for i := 0; i < 3; i++ {
+		f, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		info, err := f.Stat()
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := readFileFrom(f, info.Size(), info.ModTime().UnixNano(), position, eventReadLineCountLimit, limit)
+		f.Close()
+		if len(result.lines) != 0 {
+			t.Fatalf("scan %d reported lines %v, want none for an unterminated tail", i, result.lines)
+		}
+		if result.position != position {
+			t.Fatalf("scan %d advanced position to %d, want stable %d", i, result.position, position)
+		}
+	}
+}
+
 func TestReadFileFromEmptyFile(t *testing.T) {
 	dir := t.TempDir()
 	path := newEventFile(t, dir, "event_COMMON.log")

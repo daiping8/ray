@@ -21,6 +21,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -290,6 +293,161 @@ func TestReportEventsPostsBatches(t *testing.T) {
 	}
 	if len(rec.batches) != 2 {
 		t.Errorf("batches received = %d, want 2", len(rec.batches))
+	}
+}
+
+// TestResolveDashboardAddressNormalizesBareHostPort checks that a scheme-less
+// KV value (what the Python head writes via build_address) is normalized to a
+// full URL before it is cached, so the report request has a parseable URL.
+func TestResolveDashboardAddressNormalizesBareHostPort(t *testing.T) {
+	f := &fakeGCS{dashboardAddr: "127.0.0.1:8265"}
+	e := newEventAgent(t, f)
+
+	addr, err := e.resolveDashboardAddress(context.Background())
+	if err != nil {
+		t.Fatalf("resolveDashboardAddress: %v", err)
+	}
+	if addr != "http://127.0.0.1:8265" {
+		t.Errorf("resolved address = %q, want %q", addr, "http://127.0.0.1:8265")
+	}
+	cached, _ := e.dashboardHTTPAddress.Load().(string)
+	if cached != "http://127.0.0.1:8265" {
+		t.Errorf("cached address = %q, want %q", cached, "http://127.0.0.1:8265")
+	}
+}
+
+// TestResolveDashboardAddressKeepsScheme checks a KV value that already carries
+// a scheme is cached unchanged.
+func TestResolveDashboardAddressKeepsScheme(t *testing.T) {
+	for _, want := range []string{"http://127.0.0.1:8265", "https://head.example:443"} {
+		f := &fakeGCS{dashboardAddr: want}
+		e := newEventAgent(t, f)
+		addr, err := e.resolveDashboardAddress(context.Background())
+		if err != nil {
+			t.Fatalf("resolveDashboardAddress(%q): %v", want, err)
+		}
+		if addr != want {
+			t.Errorf("resolved address = %q, want unchanged %q", addr, want)
+		}
+	}
+}
+
+// TestReportEventsPostsToSchemeLessAddress checks the end-to-end effect of the
+// normalization: the KV carries a bare host:port (the Python head form) and the
+// report POST must still reach the httptest server.
+func TestReportEventsPostsToSchemeLessAddress(t *testing.T) {
+	rec := &headRecorder{}
+	srv := httptest.NewServer(rec.handler(0, 0))
+	defer srv.Close()
+	// Strip the "http://" scheme so the KV value is what the Python head writes.
+	hostPort := strings.TrimPrefix(srv.URL, "http://")
+	f := &fakeGCS{dashboardAddr: hostPort}
+	e := newEventAgent(t, f)
+
+	cancel, done := startReportLoop(t, e)
+	e.queue <- []string{`{"a":1}`}
+	waitReported(t, rec, 1)
+	mustCancelReportLoop(t, cancel, done)
+
+	if e.totalRequestSent.Load() != 1 {
+		t.Errorf("totalRequestSent = %d, want 1", e.totalRequestSent.Load())
+	}
+}
+
+// TestPostOnceSendsAuthHeader checks that when RAY_AUTH_MODE=token the report
+// POST carries the bearer token (Python get_auth_headers_if_auth_enabled).
+func TestPostOnceSendsAuthHeader(t *testing.T) {
+	t.Setenv("RAY_AUTH_MODE", "token")
+	t.Setenv("RAY_AUTH_TOKEN", "secret-token")
+
+	var (
+		mu     sync.Mutex
+		header string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		header = r.Header.Get("Authorization")
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	e := newEventAgent(t, &fakeGCS{dashboardAddr: srv.URL})
+	if err := e.postOnce(context.Background(), srv.URL, []byte(`["x"]`)); err != nil {
+		t.Fatalf("postOnce: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if header != "Bearer secret-token" {
+		t.Errorf("Authorization header = %q, want %q", header, "Bearer secret-token")
+	}
+}
+
+// TestPostOnceNoAuthHeaderWhenDisabled checks that without RAY_AUTH_MODE=token
+// no Authorization header is attached, even when a token is present.
+func TestPostOnceNoAuthHeaderWhenDisabled(t *testing.T) {
+	t.Setenv("RAY_AUTH_MODE", "")
+	t.Setenv("RAY_AUTH_TOKEN", "secret-token")
+
+	var (
+		mu     sync.Mutex
+		header string
+		sent   bool
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		header = r.Header.Get("Authorization")
+		sent = true
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	e := newEventAgent(t, &fakeGCS{dashboardAddr: srv.URL})
+	if err := e.postOnce(context.Background(), srv.URL, []byte(`["x"]`)); err != nil {
+		t.Fatalf("postOnce: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !sent {
+		t.Fatal("report request was not received")
+	}
+	if header != "" {
+		t.Errorf("Authorization header = %q, want empty when auth is disabled", header)
+	}
+}
+
+// TestPostOnceAuthTokenFromFile checks the token precedence fallback: with no
+// RAY_AUTH_TOKEN the first non-empty trimmed line of RAY_AUTH_TOKEN_PATH is used.
+func TestPostOnceAuthTokenFromFile(t *testing.T) {
+	t.Setenv("RAY_AUTH_MODE", "token")
+	t.Setenv("RAY_AUTH_TOKEN", "")
+	path := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(path, []byte("\n  file-token  \nsecond\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RAY_AUTH_TOKEN_PATH", path)
+
+	var (
+		mu     sync.Mutex
+		header string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		header = r.Header.Get("Authorization")
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	e := newEventAgent(t, &fakeGCS{dashboardAddr: srv.URL})
+	if err := e.postOnce(context.Background(), srv.URL, []byte(`["x"]`)); err != nil {
+		t.Fatalf("postOnce: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if header != "Bearer file-token" {
+		t.Errorf("Authorization header = %q, want %q", header, "Bearer file-token")
 	}
 }
 
