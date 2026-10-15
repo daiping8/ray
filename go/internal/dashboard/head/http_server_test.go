@@ -133,6 +133,7 @@ func TestWithRecoverCatchesPanic(t *testing.T) {
 // NewHTTPServer) turns an init panic into a recovered 500 instead of escaping
 // to net/http.
 func TestWithRecoverProtectsRuntimeInitialization(t *testing.T) {
+	resetInitBackoff()
 	orig := initWithConfigFn
 	initWithConfigFn = func(cfg *HeadConfig) error { panic("boom in init") }
 	defer func() { initWithConfigFn = orig }()
@@ -154,6 +155,7 @@ func TestWithRecoverProtectsRuntimeInitialization(t *testing.T) {
 // is the D4 contract: init runs inside withRecover so the request dies with a
 // 500 + stack trace in the log, never a phantom 200.
 func TestFullChainInitPanicReturns500(t *testing.T) {
+	resetInitBackoff()
 	orig := initWithConfigFn
 	initWithConfigFn = func(cfg *HeadConfig) error { panic("boom in init") }
 	defer func() { initWithConfigFn = orig }()

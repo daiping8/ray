@@ -448,9 +448,9 @@ RAY_DEDUP_LOGS_AGG_WINDOW_S = env_integer("RAY_DEDUP_LOGS_AGG_WINDOW_S", 5)
 # Controls whether the worker setup step uses the Go implementation
 # (raygo setup_worker) instead of the Python setup_worker.py, for ALL
 # languages (PYTHON/CPP/JAVA/GO). Off by default (Python implementation).
-# Enable launching Go workers and registering the Go language with the raylet.
-# When enabled, the raylet is started with a --go_worker_command so that Go
-# drivers can register and Go workers can be spawned.
+# Go language registration with the raylet is capability-gated separately:
+# the raylet is started with a --go_worker_command whenever the raygo
+# executable exists, independent of this switch.
 ENABLE_GO_SETUP_WORKER = env_bool("RAY_ENABLE_GO_SETUP_WORKER", False)
 
 ENABLE_GO_LOG_MONITOR = env_bool("RAY_ENABLE_GO_LOG_MONITOR", False)
