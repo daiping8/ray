@@ -14,7 +14,6 @@ from ray.serve.schema import (
     APIType,
     ApplicationDetails,
     ApplicationStatus,
-    ServeDeployMode,
     ServeInstanceDetails,
 )
 from ray.train._internal.state.schema import (
@@ -158,7 +157,6 @@ def test_train_v1_run_info_enums_converted():
 
 def test_serve_instance_details_enums_converted():
     instance = ServeInstanceDetails(
-        deploy_mode=ServeDeployMode.MULTI_APP,
         controller_info={},
         proxies={},
         applications={
@@ -179,7 +177,6 @@ def test_serve_instance_details_enums_converted():
         instance._get_user_facing_json_serializable_dict(exclude_unset=True)
     )
     _strict_dumps(out)
-    assert out["deploy_mode"] == "MULTI_APP"
     assert out["applications"]["app1"]["status"] == "RUNNING"
     assert out["applications"]["app1"]["source"] == "imperative"
 
@@ -279,7 +276,6 @@ def test_serve_get_serve_instance_details_native():
     from ray.serve._private.controller import ServeController
 
     instance = ServeInstanceDetails(
-        deploy_mode=ServeDeployMode.MULTI_APP,
         controller_info={},
         proxies={},
         applications={

@@ -3,8 +3,8 @@
 pydantic v1 ``.dict()`` recursively converts nested BaseModel/list/dict but
 leaves str-Enum members as Enum objects (e.g.
 ``TrainRun.dict()["status"]`` is ``<RunStatus.RUNNING: 'RUNNING'>``), and the
-serve instance details dict likewise embeds ``ServeDeployMode`` /
-``ApplicationStatus`` / ``APIType`` enums. The msgpack ``strict_types``
+serve instance details dict likewise embeds ``ApplicationStatus`` /
+``APIType`` enums. The msgpack ``strict_types``
 serializer rejects Enum instances, which forces the Python serializer fallback
 that the Go cross-language deserializer cannot read ("msgpack: unknown ext
 id=101"). This module recursively reduces any value to msgpack-native types

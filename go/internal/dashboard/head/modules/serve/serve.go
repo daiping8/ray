@@ -109,6 +109,13 @@ const (
 // validate_endpoint in python/ray/dashboard/modules/serve/serve_head.py.
 var errServeDependenciesNotInstalled = errors.New("Serve dependencies are not installed. Please run `pip install \"ray[serve]\"`.")
 
+// errServeDepsProbeTimeout is returned when the dependency probe exceeds its
+// timeout. Unlike errServeDependenciesNotInstalled it is deliberately NOT
+// cached: a timed-out probe is not evidence that ray[serve] is missing (a
+// cold-start python worker can be slow to answer), so the next serve request
+// re-probes instead of serving a cached 501 for the process lifetime.
+var errServeDepsProbeTimeout = errors.New("Serve dependency probe timed out. The python worker did not answer in time; the probe is retried on the next request.")
+
 // serveDependencyProbeModule is a ray.serve module whose import fails when the
 // ray[serve] extra is missing. Importing ray.serve._private.utils pulls in
 // ray.serve.schema / ray.serve._private.constants which depend on the optional
@@ -148,10 +155,10 @@ var checkServeDepsFn = func() error {
 	// RemotePython defaults to {CPU: 1}, which can never be satisfied on a
 	// CPU-less head node (KubeRay head groups run without a CPU resource):
 	// the raylet logs "The lease ... requires {CPU: 1} ... cannot provide the
-	// requested resources", the probe times out after serveDepsProbeTimeout,
-	// and depsChecked caches depsOK=false, so every serve request returns a
-	// permanent 501 and KubeRay can never read serve application status
-	// (RayService stuck in FailedToGetServeDeploymentStatus). Pinning to the
+	// requested resources", so every probe times out after serveDepsProbeTimeout
+	// and every serve request pays a 10s stall before failing — KubeRay can
+	// never read serve application status in time (RayService stuck in
+	// FailedToGetServeDeploymentStatus). Pinning to the
 	// head node mirrors how the controller itself is scheduled.
 	ref, err := api.RemotePython[string](serveDependencyProbeModule, serveDependencyProbeFunction, "").
 		WithResources(serveControllerResources).Call()
@@ -183,10 +190,12 @@ var checkServeDepsFn = func() error {
 		}
 		return nil
 	case <-time.After(serveDepsProbeTimeout):
-		// The probe never completed; degrade to the not-installed error. The
-		// abandoned Get goroutine may outlive the request, but it no longer
-		// holds depsMu, so subsequent serve requests are not blocked.
-		return errServeDependenciesNotInstalled
+		// The probe never completed; degrade this request with a dedicated
+		// timeout error (500) that is not cached, so the next serve request
+		// re-probes. The abandoned Get goroutine may outlive the request, but
+		// it no longer holds depsMu, so subsequent serve requests are not
+		// blocked.
+		return errServeDepsProbeTimeout
 	}
 }
 
@@ -433,8 +442,10 @@ func (h *ServeHead) getServeController() (serveController, error) {
 // installed, aligned with validate_endpoint in
 // python/ray/dashboard/modules/serve/serve_head.py which imports ray.serve
 // before handling any serve request and returns 501 "Serve dependencies are
-// not installed" on ImportError. The result is cached per process like the
-// flow module's dependency check. When the Go runtime cannot be initialized
+// not installed" on ImportError. A positive result is cached per process like
+// the flow module's dependency check; a failed probe is cached too, but a
+// timed-out probe is not (a slow python worker must not degrade serve for the
+// process lifetime). When the Go runtime cannot be initialized
 // (so no Python worker can be scheduled to probe the import), the check
 // degrades to proceeding: the caller still degrades to the empty schema when
 // no serve instance is running.
@@ -457,6 +468,12 @@ func (h *ServeHead) checkServeDependencies() error {
 			// reporting a misleading 501.
 			return nil
 		}
+		if errors.Is(err, errServeDepsProbeTimeout) {
+			// A timed-out probe is not evidence that the dependencies are
+			// missing. Leave depsChecked/depsOK untouched so the next serve
+			// request re-probes instead of serving a cached 501 forever.
+			return err
+		}
 		h.depsChecked = true
 		h.depsOK = false
 		return errServeDependenciesNotInstalled
@@ -473,7 +490,14 @@ func (h *ServeHead) handleGetApplications(w http.ResponseWriter, r *http.Request
 	// @validate_endpoint() decorator which runs before get_serve_instance_details
 	// parses the request: a missing ray[serve] install returns 501.
 	if err := h.checkServeDependencies(); err != nil {
-		http.Error(w, err.Error(), http.StatusNotImplemented)
+		if errors.Is(err, errServeDependenciesNotInstalled) {
+			http.Error(w, err.Error(), http.StatusNotImplemented)
+			return
+		}
+		// A timed-out probe (or any other probe failure) is a transient
+		// server-side problem, not "dependencies missing": degrade with 500
+		// and let the next request re-probe.
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	apiTypeStr := r.URL.Query().Get("api_type")
@@ -508,10 +532,11 @@ func (h *ServeHead) handleGetApplications(w http.ResponseWriter, r *http.Request
 }
 
 // serveEmptyInstanceDetails returns ServeInstanceDetails.get_empty_schema_dict()
-// (python/ray/serve/schema.py), representing no Serve instance running.
+// (python/ray/serve/schema.py), representing no Serve instance running. This
+// tree's ServeInstanceDetails has no deploy_mode field (single-app mode was
+// removed upstream), so the mirror carries the four keys of the current schema.
 func serveEmptyInstanceDetails() map[string]interface{} {
 	return map[string]interface{}{
-		"deploy_mode":     "MULTI_APP",
 		"controller_info": map[string]interface{}{},
 		"proxies":         map[string]interface{}{},
 		"applications":    map[string]interface{}{},
@@ -763,7 +788,14 @@ func (h *ServeHead) handlePutApplications(w http.ResponseWriter, r *http.Request
 	// Dependency pre-check, aligned with the Python @validate_endpoint()
 	// decorator on put_all_applications.
 	if err := h.checkServeDependencies(); err != nil {
-		http.Error(w, err.Error(), http.StatusNotImplemented)
+		if errors.Is(err, errServeDependenciesNotInstalled) {
+			http.Error(w, err.Error(), http.StatusNotImplemented)
+			return
+		}
+		// A timed-out probe (or any other probe failure) is a transient
+		// server-side problem, not "dependencies missing": degrade with 500
+		// and let the next request re-probe.
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	body, err := io.ReadAll(r.Body)

@@ -182,7 +182,7 @@ if not SKIP_BAZEL_BUILD:
         os.path.join(dirpath, filename)
         for dirpath, dirnames, filenames in os.walk("ray/go/dashboard")
         for filename in filenames
-        if filename.endswith(".py")
+        if filename.endswith(".py") and not filename.startswith("test")
     ]
 
 # These are the directories where automatically generated Python protobuf

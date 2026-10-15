@@ -163,6 +163,10 @@ func NewHTTPServer(cfg *HeadConfig, mods []HeadModule, metrics *MetricsRegistry)
 	// route; without this explicit GET pattern it would fall through to the
 	// "GET /" catch-all.
 	mux.HandleFunc("GET /api/authenticate", methodNotAllowedHandler)
+	// Same for /report_events (POST-only in event.go): a non-POST request
+	// would otherwise fall through to the "GET /" catch-all and hit
+	// indexHandler, which returns 404. aiohttp returns 405 with Allow: POST.
+	mux.HandleFunc("GET /report_events", methodNotAllowedHandler)
 
 	// Middleware chain (aligned with the Python order plus an access log
 	// mirroring the aiohttp access_log). The withMaxBodySize layer sits first

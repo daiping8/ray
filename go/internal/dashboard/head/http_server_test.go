@@ -697,6 +697,7 @@ func TestBuiltinRoutesMethodRestricted(t *testing.T) {
 		{"POST", "/favicon.ico", http.StatusMethodNotAllowed},
 		{"POST", "/api/authentication_mode", http.StatusMethodNotAllowed},
 		{"GET", "/api/authenticate", http.StatusMethodNotAllowed},
+		{"GET", "/report_events", http.StatusMethodNotAllowed},
 		{"OPTIONS", "/", http.StatusMethodNotAllowed},
 		{"GET", "/api/authentication_mode", http.StatusOK},
 		{"GET", "/favicon.ico", http.StatusOK},
@@ -713,6 +714,13 @@ func TestBuiltinRoutesMethodRestricted(t *testing.T) {
 	srv.server.Handler.ServeHTTP(rec, httptest.NewRequest("POST", "/timezone", nil))
 	if allow := rec.Header().Get("Allow"); !strings.Contains(allow, "GET") {
 		t.Errorf("Allow header = %q, want GET", allow)
+	}
+	// GET /report_events advertises POST, matching the aiohttp HTTPMethodNotAllowed
+	// Allow header for the POST-only route.
+	rec = httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(rec, httptest.NewRequest("GET", "/report_events", nil))
+	if allow := rec.Header().Get("Allow"); !strings.Contains(allow, "POST") {
+		t.Errorf("Allow header = %q, want POST", allow)
 	}
 }
 
