@@ -517,10 +517,10 @@ func NextJobID(gcsAddress string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	jobIDHex, err := client.NextJobID(ctx)
+	jobID, err := client.NextJobID(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to get next JobID from GCS: %w", err)
 	}
 
-	return jobIDHex, nil
+	return jobID.Hex(), nil
 }

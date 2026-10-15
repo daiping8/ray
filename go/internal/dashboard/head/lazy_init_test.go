@@ -45,7 +45,7 @@ func resetInitBackoff() {
 // the fail-closed branches without a live GCS or a linked C++ bridge.
 type fakeGCSClient struct {
 	getNodeInfo func(ctx context.Context, nodeIP string) (*proto.GcsNodeInfo, error)
-	nextJobID   func(ctx context.Context) (string, error)
+	nextJobID   func(ctx context.Context) (ids.JobID, error)
 }
 
 func (f *fakeGCSClient) GetNodeToConnect(ctx context.Context, nodeIP string) (*proto.GcsNodeInfo, error) {
@@ -55,11 +55,11 @@ func (f *fakeGCSClient) GetNodeToConnect(ctx context.Context, nodeIP string) (*p
 	return nil, errors.New("GetNodeToConnect not stubbed")
 }
 
-func (f *fakeGCSClient) NextJobID(ctx context.Context) (string, error) {
+func (f *fakeGCSClient) NextJobID(ctx context.Context) (ids.JobID, error) {
 	if f.nextJobID != nil {
 		return f.nextJobID(ctx)
 	}
-	return "", errors.New("NextJobID not stubbed")
+	return ids.NilJobID(), errors.New("NextJobID not stubbed")
 }
 
 func (f *fakeGCSClient) Close() error   { return nil }

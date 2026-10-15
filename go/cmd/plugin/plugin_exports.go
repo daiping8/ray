@@ -49,13 +49,8 @@ func (a *gcsClientAdapter) GetNodeToConnect(ctx context.Context, nodeIpAddress s
 }
 
 // NextJobID implements api.GCSClient.NextJobID.
-// Converts ids.JobID to hex string.
-func (a *gcsClientAdapter) NextJobID(ctx context.Context) (string, error) {
-	jobID, err := a.client.NextJobID(ctx)
-	if err != nil {
-		return "", err
-	}
-	return jobID.Hex(), nil
+func (a *gcsClientAdapter) NextJobID(ctx context.Context) (ids.JobID, error) {
+	return a.client.NextJobID(ctx)
 }
 
 // Close implements api.GCSClient.Close.
@@ -186,13 +181,13 @@ func Initialize(opts options.InitializeOptions) (base.RuntimeHandle, error) {
 			// Note: JobID must be set before calling base.Initialize(), which passes it to C++.
 			if opts.Job.JobID == "" {
 				log.Log.Info("fetching next JobID from GCS", "gcsAddress", opts.Network.GcsAddress)
-				jobIDHex, err := client.NextJobID(ctx)
+				jobID, err := client.NextJobID(ctx)
 				if err != nil {
 					log.Log.Error(err, "failed to fetch next JobID from GCS")
 					return fmt.Errorf("failed to get next JobID from GCS: %w", err)
 				}
-				log.Log.Info("fetched next JobID from GCS", "jobID", jobIDHex)
-				opts.Job.JobID = jobIDHex
+				log.Log.Info("fetched next JobID from GCS", "jobID", jobID.Hex())
+				opts.Job.JobID = jobID.Hex()
 			} else {
 				log.Log.Info("JobID already set", "jobID", opts.Job.JobID)
 			}

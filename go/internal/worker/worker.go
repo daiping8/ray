@@ -176,13 +176,8 @@ func (a *gcsClientAdapter) GetNodeToConnect(ctx context.Context, nodeIpAddress s
 }
 
 // NextJobID implements api.GCSClient.NextJobID.
-// Converts ids.JobID to hex string.
-func (a *gcsClientAdapter) NextJobID(ctx context.Context) (string, error) {
-	jobID, err := a.client.NextJobID(ctx)
-	if err != nil {
-		return "", err
-	}
-	return jobID.Hex(), nil
+func (a *gcsClientAdapter) NextJobID(ctx context.Context) (ids.JobID, error) {
+	return a.client.NextJobID(ctx)
 }
 
 // Close implements api.GCSClient.Close.
@@ -504,15 +499,15 @@ func (w *Worker) Run() error {
 			// This mimics Java's GcsClient.nextJobId() which allocates a new JobID for the driver.
 			if initOpts.Job.JobID == "" {
 				logger.Info("fetching next JobID from GCS", "gcs_address", initOpts.Network.GcsAddress)
-				jobIDHex, err := client.NextJobID(ctx)
+				jobID, err := client.NextJobID(ctx)
 				if err != nil {
 					logger.Error(err, "failed to fetch next JobID from GCS")
 					return rayerrors.WrapRayError(err, rayerrors.CodeNetworkError,
 						rayerrors.WithCategory(rayerrors.CategoryNetwork),
 						rayerrors.WithMessage("failed to get next JobID from GCS"))
 				}
-				logger.Info("fetched next JobID from GCS", "job_id", jobIDHex)
-				initOpts.Job.JobID = jobIDHex
+				logger.Info("fetched next JobID from GCS", "job_id", jobID.Hex())
+				initOpts.Job.JobID = jobID.Hex()
 			} else {
 				logger.Info("JobID already set", "job_id", initOpts.Job.JobID)
 			}

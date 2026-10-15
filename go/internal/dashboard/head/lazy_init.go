@@ -301,12 +301,12 @@ func initWithConfig(cfg *HeadConfig) error {
 			}
 		}
 
-		jobIDHex, err := client.NextJobID(ctx)
+		jobID, err := client.NextJobID(ctx)
 		if err != nil {
 			return err
 		}
-		initOpts.Job.JobID = jobIDHex
-		log.Log.Info("fetched next JobID from GCS for dashboard head", "job_id", jobIDHex)
+		initOpts.Job.JobID = jobID.Hex()
+		log.Log.Info("fetched next JobID from GCS for dashboard head", "job_id", jobID.Hex())
 		return nil
 	}); err != nil {
 		return err
