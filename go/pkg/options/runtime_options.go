@@ -125,6 +125,11 @@ type InitializeOptions struct {
 	Network    NetworkOptions // Network configuration
 	Job        JobOptions     // Job configuration
 	Runtime    RuntimeOptions // Runtime configuration
+	// SkipDriverLogSetup suppresses the inline driver-logger setup inside
+	// api.InitWithOptions (ray_go_{PID}.log). Set by processes that already
+	// configured their own component logger before calling InitWithOptions
+	// (e.g. the dashboard head), so it is not overwritten mid-startup.
+	SkipDriverLogSetup bool
 }
 
 // JobConfigActorLifetime specifies the default lifetime for actors.

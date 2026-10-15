@@ -26,7 +26,6 @@ import (
 	"strings"
 
 	"github.com/ray-project/ray/go/internal/common"
-	"github.com/ray-project/ray/go/internal/gcs/native"
 	"github.com/ray-project/ray/go/internal/runtime_env"
 	"github.com/ray-project/ray/go/internal/runtime_env/agent"
 	"github.com/ray-project/ray/go/pkg/gcs"
@@ -34,6 +33,7 @@ import (
 	"github.com/ray-project/ray/go/pkg/log"
 	"github.com/ray-project/ray/go/pkg/log/logconfig"
 	"github.com/ray-project/ray/go/pkg/log/zap"
+	"github.com/ray-project/ray/go/pkg/runtime/plugin"
 	"github.com/spf13/cobra"
 )
 
@@ -43,8 +43,12 @@ var runtimeGOOS = runtime.GOOS
 // connectGCSClient is the factory used to create GCS client connections; tests
 // can replace it with a fake.
 var connectGCSClient = func(opts gcs.ClientOptions) (gcs.Client, error) {
-	return native.ConnectClient(opts)
+	return plugin.LoadGCSClient(opts)
 }
+
+// validatePluginLoadableFn wraps plugin.CheckPluginLoadable (D3 startup
+// pre-check) so tests can inject a fake.
+var validatePluginLoadableFn = plugin.CheckPluginLoadable
 
 // Flags for the runtime-env-agent command.
 var (
@@ -138,6 +142,11 @@ func GetRuntimeEnvAgentCmd() *cobra.Command {
 
 // runRuntimeEnvAgent runs the runtime env agent.
 func runRuntimeEnvAgent(ctx context.Context) error {
+	// D3: fail fast on deployment errors (missing/invalid go_runtime.so).
+	if err := validatePluginLoadableFn(); err != nil {
+		return err
+	}
+
 	if pythonExecutable != "" {
 		runtime_env.PythonExecutable = pythonExecutable
 	}

@@ -1,17 +1,3 @@
-// Copyright 2025 The Ray Authors.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//  http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 package head
 
 import (
@@ -24,28 +10,17 @@ import (
 
 	"github.com/ray-project/ray/go/pkg/gcs"
 	"github.com/ray-project/ray/go/pkg/ids"
-	"github.com/ray-project/ray/go/pkg/runtime/api"
 	"github.com/ray-project/ray/go/proto"
 )
 
-// resetInitBackoff clears the OSS lazy-init cool-down cache. The INT 313d
-// tests were written against a backoff-free EnsureInitialized (the INT baseline
-// has no initRetryBackoff); the OSS build keeps the PR #8 cool-down, so a test
-// that intentionally fails an init (e.g. the withRuntimeInitialization 500
-// tests) leaves lastInitErr set and would make a later test's EnsureInitialized
-// assertion return the cached error instead of running its injected
-// initializer. Call at the start of any test that asserts an EnsureInitialized
-// outcome to make it order-independent.
-func resetInitBackoff() {
-	lastInitErr = nil
-}
-
-// fakeGCSClient stubs the api.GCSClient surface the dashboard head's
+// fakeGCSClient stubs the gcs.Client surface the dashboard head's
 // initWithConfig exercises (GetNodeToConnect + NextJobID). It lets tests drive
-// the fail-closed branches without a live GCS or a linked C++ bridge.
+// the fail-closed branches without a live GCS or a loaded go_runtime.so.
 type fakeGCSClient struct {
+	gcs.Client
 	getNodeInfo func(ctx context.Context, nodeIP string) (*proto.GcsNodeInfo, error)
 	nextJobID   func(ctx context.Context) (ids.JobID, error)
+	closed      bool
 }
 
 func (f *fakeGCSClient) GetNodeToConnect(ctx context.Context, nodeIP string) (*proto.GcsNodeInfo, error) {
@@ -62,36 +37,15 @@ func (f *fakeGCSClient) NextJobID(ctx context.Context) (ids.JobID, error) {
 	return ids.NilJobID(), errors.New("NextJobID not stubbed")
 }
 
-func (f *fakeGCSClient) Close() error   { return nil }
-func (f *fakeGCSClient) IsClosed() bool { return false }
+func (f *fakeGCSClient) Close() error   { f.closed = true; return nil }
+func (f *fakeGCSClient) IsClosed() bool { return f.closed }
 
-func (f *fakeGCSClient) GetPlacementGroupInfo(ctx context.Context, id ids.PlacementGroupID) (*proto.PlacementGroupTableData, error) {
-	return nil, errors.New("GetPlacementGroupInfo not stubbed")
-}
-func (f *fakeGCSClient) GetPlacementGroupInfoByName(ctx context.Context, name, namespace string) (*proto.PlacementGroupTableData, error) {
-	return nil, errors.New("GetPlacementGroupInfoByName not stubbed")
-}
-func (f *fakeGCSClient) GetAllPlacementGroupInfo(ctx context.Context) ([]*proto.PlacementGroupTableData, error) {
-	return nil, errors.New("GetAllPlacementGroupInfo not stubbed")
-}
-func (f *fakeGCSClient) GetInternalKV(ctx context.Context, ns, key string) ([]byte, error) {
-	return nil, errors.New("GetInternalKV not stubbed")
-}
-func (f *fakeGCSClient) GetAllNodeInfo(ctx context.Context) (map[ids.NodeID]*proto.GcsNodeInfo, error) {
-	return nil, errors.New("GetAllNodeInfo not stubbed")
-}
-func (f *fakeGCSClient) GetAllActorInfo(ctx context.Context, jobID *ids.JobID, actorStateName *gcs.ActorStateName) ([]*proto.ActorTableData, error) {
-	return nil, errors.New("GetAllActorInfo not stubbed")
-}
-
-// runWithFakeGCS runs fn with withCachedClientFn swapped for a stub that hands
+// runWithFakeGCS runs fn with loadGCSClientFn swapped for a stub that hands
 // fn the given fake client, restoring the original after.
-func runWithFakeGCS(fake api.GCSClient, fn func()) {
-	orig := withCachedClientFn
-	withCachedClientFn = func(gcsAddress string, opts gcs.ClientOptions, cb func(api.GCSClient) error) error {
-		return cb(fake)
-	}
-	defer func() { withCachedClientFn = orig }()
+func runWithFakeGCS(fake gcs.Client, fn func()) {
+	orig := loadGCSClientFn
+	loadGCSClientFn = func(opts gcs.ClientOptions) (gcs.Client, error) { return fake, nil }
+	defer func() { loadGCSClientFn = orig }()
 	fn()
 }
 
@@ -102,10 +56,14 @@ func runWithFakeGCS(fake api.GCSClient, fn func()) {
 // would hand to CoreWorkerProcess as an empty raylet socket (RAY_LOG(FATAL))
 // or a port-0 address (QuickExit) killing the whole dashboard.
 func TestInitWithConfigFailsClosedOnGetNodeToConnectError(t *testing.T) {
-	sentinel := errors.New("gcs rpc failed")
-	runWithFakeGCS(&fakeGCSClient{getNodeInfo: func(ctx context.Context, nodeIP string) (*proto.GcsNodeInfo, error) {
-		return nil, sentinel
-	}}, func() {
+	runWithFakeGCS(&fakeGCSClient{
+		getNodeInfo: func(ctx context.Context, nodeIP string) (*proto.GcsNodeInfo, error) {
+			return nil, errors.New("gcs rpc failed")
+		},
+		nextJobID: func(ctx context.Context) (ids.JobID, error) {
+			return mustJobID(t, "01020304"), nil
+		},
+	}, func() {
 		origPre := preflightConnectFn
 		called := false
 		preflightConnectFn = func(addr string, timeout time.Duration) error { called = true; return nil }
@@ -116,8 +74,8 @@ func TestInitWithConfigFailsClosedOnGetNodeToConnectError(t *testing.T) {
 		if err == nil {
 			t.Fatal("initWithConfig returned nil, want error for GetNodeToConnect failure")
 		}
-		if !errors.Is(err, sentinel) {
-			t.Fatalf("initWithConfig error = %v, want sentinel %v", err, sentinel)
+		if !errors.Is(err, errNoNodeInfo) {
+			t.Fatalf("initWithConfig error = %v, want ErrNoNodeInfo", err)
 		}
 		if called {
 			t.Fatal("preflightConnectFn called despite GetNodeToConnect failure; want fail-closed before any dial")
@@ -130,9 +88,14 @@ func TestInitWithConfigFailsClosedOnGetNodeToConnectError(t *testing.T) {
 // would leave sockets empty and NodeManagerPort=0, the same QuickExit/FATAL
 // hazards as an RPC error.
 func TestInitWithConfigFailsClosedOnNilNodeInfo(t *testing.T) {
-	runWithFakeGCS(&fakeGCSClient{getNodeInfo: func(ctx context.Context, nodeIP string) (*proto.GcsNodeInfo, error) {
-		return nil, nil
-	}}, func() {
+	runWithFakeGCS(&fakeGCSClient{
+		getNodeInfo: func(ctx context.Context, nodeIP string) (*proto.GcsNodeInfo, error) {
+			return nil, nil
+		},
+		nextJobID: func(ctx context.Context) (ids.JobID, error) {
+			return mustJobID(t, "01020304"), nil
+		},
+	}, func() {
 		cfg := &HeadConfig{GCSAddress: "127.0.0.1:6379", ClusterIDHex: "abc", NodeIPAddress: "127.0.0.1"}
 		err := initWithConfig(cfg)
 		if err == nil {
@@ -148,7 +111,6 @@ func TestInitWithConfigFailsClosedOnNilNodeInfo(t *testing.T) {
 // the initializer exactly once per call (the test binary does not load
 // go_runtime.so, so api.IsInitialized() is always false here).
 func TestEnsureInitializedCallsInitOnce(t *testing.T) {
-	resetInitBackoff()
 	var calls atomic.Int32
 	orig := initWithConfigFn
 	initWithConfigFn = func(cfg *HeadConfig) error {
@@ -177,7 +139,6 @@ func TestEnsureInitializedCallsInitOnce(t *testing.T) {
 // initialized" panic, even when every caller observes an uninitialized runtime
 // and would otherwise race into InitWithOptions.
 func TestEnsureInitializedConcurrentNoPanic(t *testing.T) {
-	resetInitBackoff()
 	orig := initWithConfigFn
 	initWithConfigFn = func(cfg *HeadConfig) error { return nil }
 	defer func() { initWithConfigFn = orig }()
@@ -203,7 +164,6 @@ func TestEnsureInitializedConcurrentNoPanic(t *testing.T) {
 // TestEnsureInitializedPropagatesInitError verifies an initialization failure
 // is returned to the caller so the calling module can degrade.
 func TestEnsureInitializedPropagatesInitError(t *testing.T) {
-	resetInitBackoff()
 	sentinel := errors.New("gcs not ready")
 	orig := initWithConfigFn
 	initWithConfigFn = func(cfg *HeadConfig) error { return sentinel }
@@ -213,67 +173,6 @@ func TestEnsureInitializedPropagatesInitError(t *testing.T) {
 	err := EnsureInitialized(cfg)
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("EnsureInitialized error = %v, want sentinel %v", err, sentinel)
-	}
-}
-
-// TestEnsureInitializedBackoffAfterFailure verifies that a failed lazy init
-// enters a cool-down: within initRetryBackoff subsequent calls return the
-// cached error without re-entering the initializer. Every attempt constructs
-// the C++ CoreWorker, and a CoreWorker that cannot reach the local raylet
-// exits the whole process from the C++ side, so the retry must not run per
-// request.
-func TestEnsureInitializedBackoffAfterFailure(t *testing.T) {
-	sentinel := errors.New("raylet unreachable")
-	var calls atomic.Int32
-	orig := initWithConfigFn
-	initWithConfigFn = func(cfg *HeadConfig) error {
-		calls.Add(1)
-		return sentinel
-	}
-	defer func() { initWithConfigFn = orig }()
-	origBackoff := initRetryBackoff
-	initRetryBackoff = time.Minute
-	defer func() { initRetryBackoff = origBackoff }()
-	lastInitErr = nil
-
-	cfg := &HeadConfig{GCSAddress: "127.0.0.1:6379", ClusterIDHex: "abc", NodeIPAddress: "127.0.0.1"}
-	if err := EnsureInitialized(cfg); !errors.Is(err, sentinel) {
-		t.Fatalf("first EnsureInitialized error = %v, want sentinel", err)
-	}
-	if err := EnsureInitialized(cfg); !errors.Is(err, sentinel) {
-		t.Fatalf("second EnsureInitialized (within backoff) error = %v, want sentinel", err)
-	}
-	if calls.Load() != 1 {
-		t.Fatalf("initWithConfig called %d times within backoff, want 1 (no re-entry)", calls.Load())
-	}
-}
-
-// TestEnsureInitializedRetriesAfterBackoff verifies the cool-down expires and
-// a retry is allowed, preserving the recover-on-next-request design for a GCS
-// or raylet that comes back.
-func TestEnsureInitializedRetriesAfterBackoff(t *testing.T) {
-	sentinel := errors.New("gcs not ready")
-	var calls atomic.Int32
-	orig := initWithConfigFn
-	initWithConfigFn = func(cfg *HeadConfig) error {
-		calls.Add(1)
-		return sentinel
-	}
-	defer func() { initWithConfigFn = orig }()
-	origBackoff := initRetryBackoff
-	initRetryBackoff = 0
-	defer func() { initRetryBackoff = origBackoff }()
-	lastInitErr = nil
-
-	cfg := &HeadConfig{GCSAddress: "127.0.0.1:6379", ClusterIDHex: "abc", NodeIPAddress: "127.0.0.1"}
-	if err := EnsureInitialized(cfg); !errors.Is(err, sentinel) {
-		t.Fatalf("first EnsureInitialized error = %v, want sentinel", err)
-	}
-	if err := EnsureInitialized(cfg); !errors.Is(err, sentinel) {
-		t.Fatalf("second EnsureInitialized (backoff expired) error = %v, want sentinel", err)
-	}
-	if calls.Load() != 2 {
-		t.Fatalf("initWithConfig called %d times after backoff expiry, want 2", calls.Load())
 	}
 }
 
@@ -305,6 +204,15 @@ func TestPreflightNodeManagerAllowsReachable(t *testing.T) {
 	if err := preflightNodeManager("10.0.0.1", 12345); err != nil {
 		t.Fatalf("preflightNodeManager returned error for reachable port: %v", err)
 	}
+}
+
+func mustJobID(t *testing.T, hex string) ids.JobID {
+	t.Helper()
+	id, err := ids.JobIDFromHex(hex)
+	if err != nil {
+		t.Fatalf("JobIDFromHex(%q): %v", hex, err)
+	}
+	return id
 }
 
 // TestPreflightNodeManagerSkipsUnset verifies the preflight is a no-op when

@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -161,6 +162,44 @@ func TestFindPluginPath_EnvVarNotFound(t *testing.T) {
 	}
 
 	t.Logf("FindPluginPath() with invalid env var: %v (expected)", err)
+}
+
+// TestValidatePluginLoadable_StrictEnvPath verifies the D3 pre-check treats an
+// explicitly set RAY_GO_RUNTIME_PATH as authoritative: a non-existent path is
+// a deployment error that must fail fast, instead of silently falling back to
+// FindPluginPath's multi-tier search (which may find a valid plugin elsewhere,
+// e.g. Python site-packages). This mirrors api.InitWithOptions' resolution.
+func TestValidatePluginLoadable_StrictEnvPath(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "does-not-exist.so")
+	t.Setenv("RAY_GO_RUNTIME_PATH", missing)
+
+	err := ValidatePluginLoadable()
+	if err == nil {
+		t.Fatal("ValidatePluginLoadable() = nil error, want failure for non-existent RAY_GO_RUNTIME_PATH")
+	}
+	if !strings.Contains(err.Error(), "plugin validation failed") {
+		t.Fatalf("error %q does not mention plugin validation failed", err)
+	}
+	if !strings.Contains(err.Error(), missing) {
+		t.Fatalf("error %q does not mention the configured plugin path %q", err, missing)
+	}
+}
+
+// TestValidatePluginLoadable_UnsetEnvUsesFindPluginPath verifies that when
+// RAY_GO_RUNTIME_PATH is unset, ValidatePluginLoadable resolves via
+// FindPluginPath (accepting any plugin found by the multi-tier search).
+func TestValidatePluginLoadable_UnsetEnvUsesFindPluginPath(t *testing.T) {
+	os.Unsetenv("RAY_GO_RUNTIME_PATH")
+
+	_, err := FindPluginPath()
+	pluginFound := err == nil
+	valErr := ValidatePluginLoadable()
+	if pluginFound && valErr != nil {
+		t.Fatalf("ValidatePluginLoadable() = %v, want nil when FindPluginPath finds a plugin", valErr)
+	}
+	if !pluginFound && valErr == nil {
+		t.Fatal("ValidatePluginLoadable() = nil, want error when FindPluginPath finds no plugin")
+	}
 }
 
 // TestGetLibraryName_AllPlatforms tests library names for all platforms (simulated)

@@ -133,7 +133,6 @@ func TestWithRecoverCatchesPanic(t *testing.T) {
 // NewHTTPServer) turns an init panic into a recovered 500 instead of escaping
 // to net/http.
 func TestWithRecoverProtectsRuntimeInitialization(t *testing.T) {
-	resetInitBackoff()
 	orig := initWithConfigFn
 	initWithConfigFn = func(cfg *HeadConfig) error { panic("boom in init") }
 	defer func() { initWithConfigFn = orig }()
@@ -155,7 +154,6 @@ func TestWithRecoverProtectsRuntimeInitialization(t *testing.T) {
 // is the D4 contract: init runs inside withRecover so the request dies with a
 // 500 + stack trace in the log, never a phantom 200.
 func TestFullChainInitPanicReturns500(t *testing.T) {
-	resetInitBackoff()
 	orig := initWithConfigFn
 	initWithConfigFn = func(cfg *HeadConfig) error { panic("boom in init") }
 	defer func() { initWithConfigFn = orig }()
@@ -902,7 +900,6 @@ func TestWithRuntimeInitializationSkipsNonRuntimePath(t *testing.T) {
 // init (initWithConfigFn returns nil) lets the request through and the inner
 // handler runs.
 func TestWithRuntimeInitializationRunsInnerOnSuccess(t *testing.T) {
-	resetInitBackoff()
 	orig := initWithConfigFn
 	initWithConfigFn = func(cfg *HeadConfig) error { return nil }
 	defer func() { initWithConfigFn = orig }()
@@ -925,7 +922,6 @@ func TestWithRuntimeInitializationRunsInnerOnSuccess(t *testing.T) {
 // surfaces HTTP 500 (aligned with the Python init_ray_and_catch_exceptions
 // decorator's HTTPInternalServerError) and the inner handler is NOT run.
 func TestWithRuntimeInitializationReturns500OnFailure(t *testing.T) {
-	resetInitBackoff()
 	sentinel := errors.New("gcs not ready")
 	orig := initWithConfigFn
 	initWithConfigFn = func(cfg *HeadConfig) error { return sentinel }
@@ -1009,7 +1005,6 @@ func TestRuntimeInitRouteCoverage(t *testing.T) {
 // the runtime like Python's decorated scale_deployment, returning 500 on init
 // failure rather than the pre-fix 503 regression).
 func TestRuntimeInitRouteCoverageScale(t *testing.T) {
-	resetInitBackoff()
 	orig := initWithConfigFn
 	failInit := errors.New("runtime init failed")
 	initWithConfigFn = func(cfg *HeadConfig) error { return failInit }
@@ -1028,7 +1023,6 @@ func TestRuntimeInitRouteCoverageScale(t *testing.T) {
 // TestRuntimeInitRouteCoverageScaleSucceeds verifies that once the scale route
 // is prefixed, a successful init lets the scale request through to its handler.
 func TestRuntimeInitRouteCoverageScaleSucceeds(t *testing.T) {
-	resetInitBackoff()
 	orig := initWithConfigFn
 	initWithConfigFn = func(cfg *HeadConfig) error { return nil }
 	defer func() { initWithConfigFn = orig }()

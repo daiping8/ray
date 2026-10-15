@@ -24,8 +24,11 @@ import (
 	v2 "github.com/ray-project/ray/go/internal/autoscaler/v2"
 	"github.com/ray-project/ray/go/internal/autoscaler/v2/constant"
 	"github.com/ray-project/ray/go/internal/common"
+	"github.com/ray-project/ray/go/pkg/gcs"
+	"github.com/ray-project/ray/go/pkg/ids"
 	"github.com/ray-project/ray/go/pkg/log"
 	"github.com/ray-project/ray/go/pkg/log/logconfig"
+	"github.com/ray-project/ray/go/pkg/runtime/plugin"
 	"github.com/spf13/cobra"
 )
 
@@ -148,8 +151,27 @@ func runMonitor(cmd *cobra.Command, args []string) (err error) {
 		"log_dir", config.LogsDir,
 		"monitor_ip", config.MonitorIP)
 
+	// D3: fail fast on deployment errors (missing/invalid go_runtime.so).
+	if err := plugin.CheckPluginLoadable(); err != nil {
+		v2.CustomErrorHook(err)
+		return err
+	}
+
+	// Build the GCS client through the plugin export surface and reuse the same
+	// instance for the config reader and the monitor (one-process-one-client).
+	gcsClient, err := plugin.LoadGCSClient(gcs.ClientOptions{
+		Address:   config.GcsAddress,
+		ClusterID: ids.NilClusterID(),
+		TimeoutMs: 10000,
+	})
+	if err != nil {
+		v2.CustomErrorHook(err)
+		return fmt.Errorf("failed to connect to GCS client: %w", err)
+	}
+	defer gcsClient.Close()
+
 	// Create the config reader and validate it.
-	configReader, err := v2.CreateConfigReader(config)
+	configReader, err := v2.CreateConfigReader(config, gcsClient)
 	if err != nil {
 		v2.CustomErrorHook(err)
 		return err
@@ -160,6 +182,7 @@ func runMonitor(cmd *cobra.Command, args []string) (err error) {
 		configReader,
 		config.LogsDir,
 		config.MonitorIP,
+		gcsClient,
 	)
 	if err != nil {
 		v2.CustomErrorHook(err)

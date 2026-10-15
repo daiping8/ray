@@ -129,6 +129,16 @@ func runSetupWorker(ctx context.Context, args []string, cfg *SetupWorkerConfig) 
 	logger := log.WithName("setup_worker")
 	logger.Info("starting worker setup")
 
+	// Prestarted python workers are launched without a runtime env context, so
+	// the deserialized context carries no py_executable. Initialize the
+	// process-wide PythonExecutable from PATH so those workers are still exec'd
+	// through a python interpreter instead of running default_worker.py
+	// directly (which is not executable / has no shebang). Mirrors Python's
+	// RuntimeEnvContext.__init__ falling back to sys.executable.
+	if runtime_env.PythonExecutable == "" {
+		runtime_env.PythonExecutable = runtime_env.GetPythonExecutable()
+	}
+
 	// Create a separate pflag.FlagSet to parse known flags.
 	flagSet := pflag.NewFlagSet("setup-worker", pflag.ContinueOnError)
 	flagSet.SortFlags = false
