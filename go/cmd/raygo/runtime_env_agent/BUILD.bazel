@@ -29,6 +29,7 @@ go_library(
         "//go/pkg/gcs",
         "//go/pkg/ids",
         "//go/pkg/log",
+        "//go/pkg/log/logconfig",
         "//go/pkg/log/zap",
         "@com_github_spf13_cobra//:cobra",
     ],

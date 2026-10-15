@@ -23,7 +23,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ray-project/ray/go/internal/common"
 	"github.com/ray-project/ray/go/internal/dashboard/head"
 	"github.com/ray-project/ray/go/internal/dashboard/head/modules/data"
 	"github.com/ray-project/ray/go/internal/dashboard/head/modules/event"
@@ -40,6 +39,7 @@ import (
 	"github.com/ray-project/ray/go/internal/dashboard/head/modules/usage_stats"
 	"github.com/ray-project/ray/go/internal/runtime_env"
 	"github.com/ray-project/ray/go/pkg/log"
+	"github.com/ray-project/ray/go/pkg/log/logconfig"
 	"github.com/ray-project/ray/go/pkg/log/zap"
 	"github.com/spf13/cobra"
 )
@@ -277,7 +277,7 @@ func setupLogging(cfg *head.HeadConfig) error {
 
 	// Python passes uppercase logging levels (e.g. "INFO"); ParseLogLevel
 	// expects lowercase, so normalize first.
-	level, err := common.ParseLogLevel(strings.ToLower(cfg.LoggingLevel))
+	level, err := logconfig.ParseLogLevel(strings.ToLower(cfg.LoggingLevel))
 	if err != nil {
 		return err
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/ray-project/ray/go/internal/common"
 	runtime_env "github.com/ray-project/ray/go/internal/runtime_env"
 	"github.com/ray-project/ray/go/pkg/log"
+	"github.com/ray-project/ray/go/pkg/log/logconfig"
 	"github.com/ray-project/ray/go/pkg/log/zap"
 	"github.com/ray-project/ray/go/proto"
 	"github.com/spf13/cobra"
@@ -117,7 +118,7 @@ func GetSetupWorkerCmd() *cobra.Command {
 func runSetupWorker(ctx context.Context, args []string, cfg *SetupWorkerConfig) error {
 	// ParseLogLevel accepts the documented level names (warning, critical)
 	// that zapcore.ParseLevel rejects.
-	level, err := common.ParseLogLevel(common.LoggerLevel)
+	level, err := logconfig.ParseLogLevel(common.LoggerLevel)
 	if err != nil {
 		level = zapcore.InfoLevel
 	}

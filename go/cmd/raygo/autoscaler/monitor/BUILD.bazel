@@ -24,6 +24,7 @@ go_library(
         "//go/internal/autoscaler/v2/constant",
         "//go/internal/common",
         "//go/pkg/log",
+        "//go/pkg/log/logconfig",
         "@com_github_spf13_cobra//:cobra",
     ],
 )

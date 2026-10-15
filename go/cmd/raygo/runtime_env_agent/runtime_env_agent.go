@@ -32,6 +32,7 @@ import (
 	"github.com/ray-project/ray/go/pkg/gcs"
 	"github.com/ray-project/ray/go/pkg/ids"
 	"github.com/ray-project/ray/go/pkg/log"
+	"github.com/ray-project/ray/go/pkg/log/logconfig"
 	"github.com/ray-project/ray/go/pkg/log/zap"
 	"github.com/spf13/cobra"
 )
@@ -161,7 +162,7 @@ func runRuntimeEnvAgent(ctx context.Context) error {
 		return fmt.Errorf("failed to redirect stdout/stderr: %w", err)
 	}
 
-	loggingZapcoreLevel, err := common.ParseLogLevel(loggingLevel)
+	loggingZapcoreLevel, err := logconfig.ParseLogLevel(loggingLevel)
 	if err != nil {
 		return err
 	}

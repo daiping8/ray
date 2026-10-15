@@ -30,6 +30,7 @@ import (
 	"github.com/ray-project/ray/go/pkg/gcs"
 	"github.com/ray-project/ray/go/pkg/ids"
 	"github.com/ray-project/ray/go/pkg/log"
+	"github.com/ray-project/ray/go/pkg/log/logconfig"
 	"github.com/spf13/cobra"
 )
 
@@ -249,15 +250,15 @@ func runDashboardAgent(ctx context.Context) error {
 		logFilename = dashboardAgentLogFilename
 	}
 
-	if err := common.NewLogOption(
-		common.WithLoggingLevel(loggingLevel),
-		common.WithLoggingFormat(loggingFormat),
-		common.WithLoggingFilename(logFilename),
-		common.WithLogsDir(logDir),
-		common.WithLoggingRotateBytes(loggingRotateBytes),
-		common.WithLoggingRotateBackupCount(loggingRotateBackupCount),
-		common.WithStdoutFilepath(stdoutFilepath),
-		common.WithStderrFilepath(stderrFilepath),
+	if err := logconfig.NewLogOption(
+		logconfig.WithLoggingLevel(loggingLevel),
+		logconfig.WithLoggingFormat(loggingFormat),
+		logconfig.WithLoggingFilename(logFilename),
+		logconfig.WithLogsDir(logDir),
+		logconfig.WithLoggingRotateBytes(loggingRotateBytes),
+		logconfig.WithLoggingRotateBackupCount(loggingRotateBackupCount),
+		logconfig.WithStdoutFilepath(stdoutFilepath),
+		logconfig.WithStderrFilepath(stderrFilepath),
 	).SetupComponentLogger(); err != nil {
 		return fmt.Errorf("failed to setup default logger: %w", err)
 	}

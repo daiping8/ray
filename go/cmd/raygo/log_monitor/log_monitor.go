@@ -28,11 +28,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ray-project/ray/go/internal/common"
 	nativegcs "github.com/ray-project/ray/go/internal/gcs/native"
 	"github.com/ray-project/ray/go/internal/logmonitor"
 	"github.com/ray-project/ray/go/pkg/gcs"
 	"github.com/ray-project/ray/go/pkg/ids"
+	"github.com/ray-project/ray/go/pkg/log/logconfig"
 	lj "github.com/ray-project/ray/go/pkg/log/lumberjack"
 	"github.com/ray-project/ray/go/pkg/log/zap"
 )
@@ -208,7 +208,7 @@ func validateOptions(opts *Options) error {
 }
 
 func setupLogger(opts *Options) error {
-	level, err := common.ParseLogLevel(opts.Logging.Level)
+	level, err := logconfig.ParseLogLevel(opts.Logging.Level)
 	if err != nil {
 		return err
 	}
