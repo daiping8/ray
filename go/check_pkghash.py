@@ -110,7 +110,7 @@ def main() -> int:
         return 2
     try:
         verify_binaries(sys.argv[1:])
-    except RuntimeError as exc:
+    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1
     print("OK: all binaries share the same package hash")

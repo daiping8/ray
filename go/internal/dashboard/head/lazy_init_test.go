@@ -40,6 +40,18 @@ func (f *fakeGCSClient) NextJobID(ctx context.Context) (ids.JobID, error) {
 func (f *fakeGCSClient) Close() error   { f.closed = true; return nil }
 func (f *fakeGCSClient) IsClosed() bool { return f.closed }
 
+// resetInitBackoff clears the OSS lazy-init cool-down cache. The INT 313d
+// tests were written against a backoff-free EnsureInitialized (the INT baseline
+// has no initRetryBackoff); the OSS build keeps the PR #8 cool-down, so a test
+// that intentionally fails an init (e.g. the withRuntimeInitialization 500
+// tests) leaves lastInitErr set and would make a later test's EnsureInitialized
+// assertion return the cached error instead of running its injected
+// initializer. Call at the start of any test that asserts an EnsureInitialized
+// outcome to make it order-independent.
+func resetInitBackoff() {
+	lastInitErr = nil
+}
+
 // runWithFakeGCS runs fn with loadGCSClientFn swapped for a stub that hands
 // fn the given fake client, restoring the original after.
 func runWithFakeGCS(fake gcs.Client, fn func()) {
@@ -111,6 +123,7 @@ func TestInitWithConfigFailsClosedOnNilNodeInfo(t *testing.T) {
 // the initializer exactly once per call (the test binary does not load
 // go_runtime.so, so api.IsInitialized() is always false here).
 func TestEnsureInitializedCallsInitOnce(t *testing.T) {
+	resetInitBackoff()
 	var calls atomic.Int32
 	orig := initWithConfigFn
 	initWithConfigFn = func(cfg *HeadConfig) error {
@@ -139,6 +152,7 @@ func TestEnsureInitializedCallsInitOnce(t *testing.T) {
 // initialized" panic, even when every caller observes an uninitialized runtime
 // and would otherwise race into InitWithOptions.
 func TestEnsureInitializedConcurrentNoPanic(t *testing.T) {
+	resetInitBackoff()
 	orig := initWithConfigFn
 	initWithConfigFn = func(cfg *HeadConfig) error { return nil }
 	defer func() { initWithConfigFn = orig }()
@@ -164,6 +178,7 @@ func TestEnsureInitializedConcurrentNoPanic(t *testing.T) {
 // TestEnsureInitializedPropagatesInitError verifies an initialization failure
 // is returned to the caller so the calling module can degrade.
 func TestEnsureInitializedPropagatesInitError(t *testing.T) {
+	resetInitBackoff()
 	sentinel := errors.New("gcs not ready")
 	orig := initWithConfigFn
 	initWithConfigFn = func(cfg *HeadConfig) error { return sentinel }
@@ -173,6 +188,67 @@ func TestEnsureInitializedPropagatesInitError(t *testing.T) {
 	err := EnsureInitialized(cfg)
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("EnsureInitialized error = %v, want sentinel %v", err, sentinel)
+	}
+}
+
+// TestEnsureInitializedBackoffAfterFailure verifies that a failed lazy init
+// enters a cool-down: within initRetryBackoff subsequent calls return the
+// cached error without re-entering the initializer. Every attempt constructs
+// the C++ CoreWorker, and a CoreWorker that cannot reach the local raylet
+// exits the whole process from the C++ side, so the retry must not run per
+// request.
+func TestEnsureInitializedBackoffAfterFailure(t *testing.T) {
+	sentinel := errors.New("raylet unreachable")
+	var calls atomic.Int32
+	orig := initWithConfigFn
+	initWithConfigFn = func(cfg *HeadConfig) error {
+		calls.Add(1)
+		return sentinel
+	}
+	defer func() { initWithConfigFn = orig }()
+	origBackoff := initRetryBackoff
+	initRetryBackoff = time.Minute
+	defer func() { initRetryBackoff = origBackoff }()
+	lastInitErr = nil
+
+	cfg := &HeadConfig{GCSAddress: "127.0.0.1:6379", ClusterIDHex: "abc", NodeIPAddress: "127.0.0.1"}
+	if err := EnsureInitialized(cfg); !errors.Is(err, sentinel) {
+		t.Fatalf("first EnsureInitialized error = %v, want sentinel", err)
+	}
+	if err := EnsureInitialized(cfg); !errors.Is(err, sentinel) {
+		t.Fatalf("second EnsureInitialized (within backoff) error = %v, want sentinel", err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("initWithConfig called %d times within backoff, want 1 (no re-entry)", calls.Load())
+	}
+}
+
+// TestEnsureInitializedRetriesAfterBackoff verifies the cool-down expires and
+// a retry is allowed, preserving the recover-on-next-request design for a GCS
+// or raylet that comes back.
+func TestEnsureInitializedRetriesAfterBackoff(t *testing.T) {
+	sentinel := errors.New("gcs not ready")
+	var calls atomic.Int32
+	orig := initWithConfigFn
+	initWithConfigFn = func(cfg *HeadConfig) error {
+		calls.Add(1)
+		return sentinel
+	}
+	defer func() { initWithConfigFn = orig }()
+	origBackoff := initRetryBackoff
+	initRetryBackoff = 0
+	defer func() { initRetryBackoff = origBackoff }()
+	lastInitErr = nil
+
+	cfg := &HeadConfig{GCSAddress: "127.0.0.1:6379", ClusterIDHex: "abc", NodeIPAddress: "127.0.0.1"}
+	if err := EnsureInitialized(cfg); !errors.Is(err, sentinel) {
+		t.Fatalf("first EnsureInitialized error = %v, want sentinel", err)
+	}
+	if err := EnsureInitialized(cfg); !errors.Is(err, sentinel) {
+		t.Fatalf("second EnsureInitialized (backoff expired) error = %v, want sentinel", err)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("initWithConfig called %d times after backoff expiry, want 2", calls.Load())
 	}
 }
 

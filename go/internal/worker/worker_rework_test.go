@@ -1,4 +1,4 @@
-// Copyright 2025 The Ray Authors.
+// Copyright 2026 The Ray Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -100,7 +100,7 @@ func TestRunValidatesSocketsBeforeInit(t *testing.T) {
 func TestRunPassesConfiguredJobIDToInit(t *testing.T) {
 	// Regression for the env-refill bug: the worker must hand the configured
 	// JobID to api.InitWithOptions; the nil-forcing for Worker mode happens in
-	// base.InitializeOptionsFromAPI (Task 6), never at the worker layer.
+	// base.InitializeOptionsFromAPI, never at the worker layer.
 	w := newTestWorker(t, options.WorkerTypeWorker, "01020304")
 
 	origValidate := validatePluginLoadableFn

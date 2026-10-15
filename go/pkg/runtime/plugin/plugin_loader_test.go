@@ -189,7 +189,15 @@ func TestValidatePluginLoadable_StrictEnvPath(t *testing.T) {
 // RAY_GO_RUNTIME_PATH is unset, ValidatePluginLoadable resolves via
 // FindPluginPath (accepting any plugin found by the multi-tier search).
 func TestValidatePluginLoadable_UnsetEnvUsesFindPluginPath(t *testing.T) {
+	origEnv, hadEnv := os.LookupEnv("RAY_GO_RUNTIME_PATH")
 	os.Unsetenv("RAY_GO_RUNTIME_PATH")
+	t.Cleanup(func() {
+		if hadEnv {
+			os.Setenv("RAY_GO_RUNTIME_PATH", origEnv)
+		} else {
+			os.Unsetenv("RAY_GO_RUNTIME_PATH")
+		}
+	})
 
 	_, err := FindPluginPath()
 	pluginFound := err == nil
