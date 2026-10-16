@@ -597,10 +597,14 @@ func IsTimeout(err error) bool {
 }
 
 // IsActorNotExists checks if an error indicates that an actor does not exist.
+// It accepts both the legacy "actor_not_exists" state and the ErrActorNotFound
+// sentinel's "actor_not_found" state, including through wrapped errors.
 // This function is provided for Java API consistency.
 func IsActorNotExists(err error) bool {
-	if runtimeErr, ok := err.(*RuntimeError); ok {
+	var runtimeErr *RuntimeError
+	if std.As(err, &runtimeErr) {
 		return runtimeErr.State == "actor_not_exists" ||
+			runtimeErr.State == "actor_not_found" ||
 			strings.Contains(runtimeErr.Message(), "actor does not exist")
 	}
 	return false
