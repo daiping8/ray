@@ -151,7 +151,7 @@ func runMonitor(cmd *cobra.Command, args []string) (err error) {
 		"log_dir", config.LogsDir,
 		"monitor_ip", config.MonitorIP)
 
-	// D3: fail fast on deployment errors (missing/invalid go_runtime.so).
+	// Fail fast on deployment errors (missing/invalid go_runtime.so).
 	if err := plugin.CheckPluginLoadable(); err != nil {
 		v2.CustomErrorHook(err)
 		return err

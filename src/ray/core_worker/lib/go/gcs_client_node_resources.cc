@@ -52,7 +52,10 @@ int ray_gcs_client_node_resources_get_available(CGcsClient *client,
 
         if (node_id_hex_str == target_node_id) {
           size_t data_size = serialized.size();
-          *serialized_out = static_cast<char *>(malloc(data_size));
+          // malloc(0) may return NULL on some platforms; use 1 byte for the
+          // empty-string case so a zero-length buffer is not misreported as an
+          // allocation failure.
+          *serialized_out = static_cast<char *>(malloc(data_size ? data_size : 1));
           *size_out = static_cast<int>(data_size);
           if (!*serialized_out) {
             set_error(error_out, "Failed to allocate memory for serialized data");
@@ -146,7 +149,10 @@ int ray_gcs_client_node_resources_get_total(CGcsClient *client,
 
         if (node_id_hex_str == target_node_id) {
           size_t data_size = serialized.size();
-          *serialized_out = static_cast<char *>(malloc(data_size));
+          // malloc(0) may return NULL on some platforms; use 1 byte for the
+          // empty-string case so a zero-length buffer is not misreported as an
+          // allocation failure.
+          *serialized_out = static_cast<char *>(malloc(data_size ? data_size : 1));
           *size_out = static_cast<int>(data_size);
           if (!*serialized_out) {
             set_error(error_out, "Failed to allocate memory for serialized data");
@@ -184,7 +190,10 @@ int ray_gcs_client_node_resources_get_all_resource_usage(CGcsClient *client,
       return 1;
     }
     size_t data_size = serialized->size();
-    *serialized_out = static_cast<char *>(malloc(data_size));
+    // malloc(0) may return NULL on some platforms; use 1 byte for the
+    // empty-string case so a zero-length buffer is not misreported as an
+    // allocation failure.
+    *serialized_out = static_cast<char *>(malloc(data_size ? data_size : 1));
     *size_out = static_cast<int>(data_size);
     if (!*serialized_out) {
       set_error(error_out, "Failed to allocate memory for serialized data");

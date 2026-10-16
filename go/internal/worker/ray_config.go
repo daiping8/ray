@@ -17,17 +17,12 @@
 package worker
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-
-	"github.com/google/uuid"
 
 	"github.com/ray-project/ray/go/internal/common"
 	"github.com/ray-project/ray/go/pkg/log"
@@ -533,7 +528,7 @@ func parseDriverConfig(cmd *cobra.Command, config *RayConfig) error {
 			config.RayNamespace = namespace
 		}
 		if config.RayNamespace == "" {
-			config.RayNamespace = generateRandomNamespace()
+			config.RayNamespace = options.GenerateDefaultNamespace()
 		}
 	}
 
@@ -595,18 +590,6 @@ func toAbsolutePath(path string) (string, error) {
 	}
 	cleanPath := filepath.Clean(absPath)
 	return cleanPath, nil
-}
-
-func generateRandomNamespace() string {
-	id, err := uuid.NewRandom()
-	if err == nil {
-		return id.String()
-	}
-	bytes := make([]byte, 16)
-	if _, err := rand.Read(bytes); err != nil {
-		return fmt.Sprintf("ns-%d", os.Getpid())
-	}
-	return hex.EncodeToString(bytes) + "-" + strconv.Itoa(os.Getpid())
 }
 
 func (c *RayConfig) GetBootstrapAddress() string {

@@ -37,7 +37,6 @@ go_library(
         "//go/pkg/runtime/contract",
         "//go/pkg/runtime/function",
         "//go/pkg/runtime/plugin",
-        "@com_github_google_uuid//:uuid",
         "@com_github_spf13_cobra//:cobra",
     ],
 )

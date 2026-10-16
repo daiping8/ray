@@ -76,8 +76,8 @@ var (
 // surface. It is a package-level variable so tests can inject a fake.
 var loadGCSClientFn = plugin.LoadGCSClient
 
-// validatePluginLoadableFn wraps plugin.CheckPluginLoadable (D3 startup
-// pre-check) so tests can inject a fake.
+// validatePluginLoadableFn wraps plugin.CheckPluginLoadable (the startup
+// plugin loadability pre-check) so tests can inject a fake.
 var validatePluginLoadableFn = plugin.CheckPluginLoadable
 
 // DashboardAgentCmd is the `dashboard-agent` subcommand of raygo.
@@ -271,7 +271,7 @@ func runDashboardAgent(ctx context.Context) error {
 		return fmt.Errorf("failed to setup default logger: %w", err)
 	}
 
-	// D3: fail fast on deployment errors (missing/invalid go_runtime.so).
+	// Fail fast on deployment errors (missing/invalid go_runtime.so).
 	if err := validatePluginLoadableFn(); err != nil {
 		return err
 	}

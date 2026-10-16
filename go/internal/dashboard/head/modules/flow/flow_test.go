@@ -815,7 +815,7 @@ func TestPluginControllerUnavailable(t *testing.T) {
 	}
 }
 
-// TestStartFlowControllerRetriesWhileNotFound verifies the B-D5 polling fix:
+// TestStartFlowControllerRetriesWhileNotFound verifies the polling behavior:
 // startFlowControllerFn keeps polling when the detached FlowController actor has
 // not yet registered its GCS name (the benign race between the start task
 // returning and the actor appearing), instead of aborting on the first
@@ -892,7 +892,8 @@ func TestStartFlowControllerAbortsOnOtherError(t *testing.T) {
 	}
 }
 
-// TestPluginAddSingleAutoCreatesController verifies the B-D3 behavior: when no
+// TestPluginAddSingleAutoCreatesController verifies the auto-create behavior:
+// when no
 // FlowController is running, add_plugin auto-creates one (via
 // startFlowControllerFn, mirroring flow.start()) and then registers the plugin,
 // like the Python ensure_flow_controller.

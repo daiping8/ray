@@ -152,7 +152,7 @@ func runDashboard(ctx context.Context) error {
 	if disableFrontend {
 		cfg.ServeFrontend = false
 	}
-	// D3: a missing/invalid go_runtime.so is a deployment/build error and is
+	// A missing/invalid go_runtime.so is a deployment/build error and is
 	// fail-fast for every subcommand. This runs before setupLogging so the
 	// error is not mistaken for a runtime-init failure (which the dashboard
 	// degrades on below).

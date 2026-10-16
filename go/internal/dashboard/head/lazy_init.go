@@ -235,10 +235,20 @@ func initWithConfig(cfg *HeadConfig) error {
 	if err != nil {
 		return err
 	}
-	// The one-shot handshake client must be closed on every path (success,
-	// DriverHandshake failure, fail-closed, preflight failure); defer covers
-	// them all. It is not in api's client cache, so nothing else closes it.
-	defer handshakeClient.Close()
+	// The one-shot handshake client must not outlive the handshake: the plugin's
+	// Initialize creates the long-lived client during InitWithOptions, and a
+	// deferred close that runs at function end would clear the pkg/gcs global
+	// singletons that client seeded. Close it explicitly right after the
+	// handshake on the success path, and keep the close on every error path
+	// (DriverHandshake failure, fail-closed, preflight failure) via the
+	// handshakeOK flag. Nothing between the handshake return and function end
+	// reads handshakeClient, so closing it here is safe.
+	handshakeOK := false
+	defer func() {
+		if !handshakeOK {
+			handshakeClient.Close()
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -250,6 +260,8 @@ func initWithConfig(cfg *HeadConfig) error {
 	if err := plugin.DriverHandshake(ctx, handshakeClient, &initOpts); err != nil {
 		return err
 	}
+	handshakeClient.Close()
+	handshakeOK = true
 
 	// Fail closed: DriverHandshake tolerates a node-info fetch failure (it
 	// logs and continues so a plain driver can surface the C++ connectivity

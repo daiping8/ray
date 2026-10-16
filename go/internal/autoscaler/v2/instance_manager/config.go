@@ -226,7 +226,7 @@ type ReadOnlyProviderConfigReader struct {
 }
 
 // NewReadOnlyProviderConfigReader creates a new read-only provider config
-// reader. The GCS client is injected by the caller (D5); when nil, the global
+// reader. The GCS client is injected by the caller; when nil, the global
 // singleton fast path is used. The native.ConnectClient fallback is removed.
 func NewReadOnlyProviderConfigReader(gcsClient gcs.Client) (IConfigReader, error) {
 	configs := deepcopy.Copy(constant.BASE_READONLY_CONFIG).(map[string]interface{})

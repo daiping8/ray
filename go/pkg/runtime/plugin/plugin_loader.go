@@ -49,8 +49,9 @@ const (
 	pluginExt     = ".so"             // Required plugin file extension
 
 	// Exported plugin symbols. Centralized so the thin-layer loaders and the
-	// D3 pre-check share one source of truth for symbol names (a typo here is
-	// caught at compile time, not only at runtime via plugin.Lookup).
+	// startup plugin loadability pre-check share one source of truth for symbol
+	// names (a typo here is caught at compile time, not only at runtime via
+	// plugin.Lookup).
 	symInitialize           = "Initialize"
 	symShutdown             = "Shutdown"
 	symRunTaskExecutionLoop = "RunTaskExecutionLoop"
@@ -445,9 +446,14 @@ func callPluginFunc(fn reflect.Value, args []reflect.Value, expectedResults int,
 	if len(results) != expectedResults {
 		return nil, fmt.Errorf("function must return exactly %d values, got %d", expectedResults, len(results))
 	}
-	for i, validator := range resultValidators {
-		if i < len(results) {
-			if err := validator(results[i]); err != nil {
+	// Validate the trailing error result first: when a plugin function returns
+	// (nil, err) the err must surface as-is instead of being masked by a
+	// value-type validator ("must return gcs.Client, got <nil>"). This also
+	// kills the typed-nil path where a value validator would dereference a nil
+	// pointer (e.g. Initialize's handle.Runtime()) before the error is seen.
+	for i := expectedResults - 1; i >= 0; i-- {
+		if i < len(resultValidators) {
+			if err := resultValidators[i](results[i]); err != nil {
 				return nil, err
 			}
 		}
@@ -912,11 +918,12 @@ func LoadRuntimePlugin(pluginPath string, opts options.InitializeOptions) (*Runt
 }
 
 // resolvePluginPath resolves the plugin path with a single, consistent
-// semantic shared by both the D3 pre-check (ValidatePluginLoadable) and the
-// thin-layer loaders (openPlugin): an explicitly set RAY_GO_RUNTIME_PATH is
-// authoritative, so a broken path is a deployment error that must fail fast
-// instead of silently falling back to another location. When the env var is
-// unset, FindPluginPath's multi-tier fallback is consulted.
+// semantic shared by both the startup plugin loadability pre-check
+// (ValidatePluginLoadable) and the thin-layer loaders (openPlugin): an
+// explicitly set RAY_GO_RUNTIME_PATH is authoritative, so a broken path is a
+// deployment error that must fail fast instead of silently falling back to
+// another location. When the env var is unset, FindPluginPath's multi-tier
+// fallback is consulted.
 //
 // When RAY_GO_RUNTIME_PATH is unset, the FindPluginPath result is cached so
 // repeated calls -- e.g. a subcommand's pre-check plus its GCS client load, or
@@ -1026,10 +1033,11 @@ func LoadLogBatchPublisher(client gcs.Client) (gcs.LogBatchPublisher, error) {
 	return results[0].Interface().(gcs.LogBatchPublisher), nil
 }
 
-// CheckPluginLoadable is the single fail-fast D3 entry point shared by every
-// plugin-using subcommand: it runs ValidatePluginLoadable and wraps any failure
-// with the standard ErrPluginNotLoadable message. Subcommands should call this
-// once at startup instead of re-implementing the validate-and-wrap sequence.
+// CheckPluginLoadable is the single fail-fast startup entry point shared by
+// every plugin-using subcommand: it runs ValidatePluginLoadable and wraps any
+// failure with the standard ErrPluginNotLoadable message. Subcommands should
+// call this once at startup instead of re-implementing the validate-and-wrap
+// sequence.
 func CheckPluginLoadable() error {
 	if err := ValidatePluginLoadable(); err != nil {
 		return ErrPluginNotLoadable(err)
@@ -1037,15 +1045,16 @@ func CheckPluginLoadable() error {
 	return nil
 }
 
-// ErrPluginNotLoadable wraps a plugin load failure with the standard D3
-// fail-fast message. Every plugin-using subcommand surfaces deployment errors
+// ErrPluginNotLoadable wraps a plugin load failure with the standard fail-fast
+// message. Every plugin-using subcommand surfaces deployment errors
 // (missing/invalid go_runtime.so) with this exact wording so logs stay
 // greppable and the message has a single source of truth.
 func ErrPluginNotLoadable(err error) error {
 	return fmt.Errorf("go_runtime.so plugin not loadable: %w", err)
 }
 
-// ValidatePluginLoadable is the D3 startup pre-check: resolve the plugin path,
+// ValidatePluginLoadable is the startup plugin loadability pre-check: resolve
+// the plugin path,
 // validate it, plugin.Open it, and confirm the Initialize and ConnectClient
 // symbols exist -- WITHOUT calling Initialize. A failure here is a
 // deployment/build error (missing go_runtime.so, package-hash mismatch) and

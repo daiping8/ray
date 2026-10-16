@@ -85,8 +85,8 @@ var initRuntimeWithOptionsFn = func(opts *options.InitializeOptions) error {
 	return api.InitWithOptions(opts)
 }
 
-// validatePluginLoadableFn wraps plugin.CheckPluginLoadable (D3 startup
-// pre-check) so tests can inject a fake.
+// validatePluginLoadableFn wraps plugin.CheckPluginLoadable (the startup
+// plugin loadability pre-check) so tests can inject a fake.
 var validatePluginLoadableFn = plugin.CheckPluginLoadable
 
 // NewOptions creates a new Options instance.
@@ -293,7 +293,7 @@ func registerUserFunctions(rt contract.Runtime, codeSearchPath []string) error {
 // This is a blocking call until the Worker receives an exit signal or an error occurs.
 //
 // Workflow:
-//  1. D3 pre-check: validate that go_runtime.so is loadable (ValidatePluginLoadable)
+//  1. Startup pre-check: validate that go_runtime.so is loadable (ValidatePluginLoadable)
 //  2. Validate the plasma store and raylet sockets
 //  3. Call api.InitWithOptions to load go_runtime.so and start the runtime
 //     (the plugin's Initialize performs the driver-mode GCS handshake)
@@ -338,7 +338,7 @@ func (w *Worker) Run() error {
 		return nil
 	}
 
-	// D3: fail fast on deployment errors (missing/invalid go_runtime.so)
+	// Fail fast on deployment errors (missing/invalid go_runtime.so)
 	// before any business logic.
 	if err := validatePluginLoadableFn(); err != nil {
 		return err

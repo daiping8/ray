@@ -104,7 +104,7 @@ func runLogMonitor(opts *Options) error {
 }
 
 func runLogMonitorWithDeps(opts *Options, deps runnerDeps) error {
-	// D3: fail fast on deployment errors (missing/invalid go_runtime.so)
+	// Fail fast on deployment errors (missing/invalid go_runtime.so)
 	// before the GCS-connect retry loop (which would otherwise retry for 30s).
 	if deps.validatePlugin != nil {
 		if err := deps.validatePlugin(); err != nil {

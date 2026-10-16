@@ -324,7 +324,10 @@ int ray_gcs_client_internal_kv_get_system_config(CGcsClient *client,
   try {
     std::string config = client->global_state_accessor->GetSystemConfig();
     size_t data_size = config.size();
-    *serialized_out = static_cast<char *>(malloc(data_size));
+    // malloc(0) may return NULL on some platforms; use 1 byte for the
+    // empty-string case so a zero-length buffer is not misreported as an
+    // allocation failure.
+    *serialized_out = static_cast<char *>(malloc(data_size ? data_size : 1));
     *size_out = static_cast<int>(data_size);
     if (!*serialized_out) {
       set_error(error_out, "Failed to allocate memory for serialized data");

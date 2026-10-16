@@ -46,8 +46,8 @@ var connectGCSClient = func(opts gcs.ClientOptions) (gcs.Client, error) {
 	return plugin.LoadGCSClient(opts)
 }
 
-// validatePluginLoadableFn wraps plugin.CheckPluginLoadable (D3 startup
-// pre-check) so tests can inject a fake.
+// validatePluginLoadableFn wraps plugin.CheckPluginLoadable (the startup
+// plugin loadability pre-check) so tests can inject a fake.
 var validatePluginLoadableFn = plugin.CheckPluginLoadable
 
 // Flags for the runtime-env-agent command.
@@ -142,7 +142,7 @@ func GetRuntimeEnvAgentCmd() *cobra.Command {
 
 // runRuntimeEnvAgent runs the runtime env agent.
 func runRuntimeEnvAgent(ctx context.Context) error {
-	// D3: fail fast on deployment errors (missing/invalid go_runtime.so).
+	// Fail fast on deployment errors (missing/invalid go_runtime.so).
 	if err := validatePluginLoadableFn(); err != nil {
 		return err
 	}

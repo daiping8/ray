@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ray-project/ray/go/pkg/gcs"
@@ -48,7 +49,12 @@ import (
 // calls base.Shutdown, which resets the base runtime singleton. Calling only
 // handle.Runtime().Shutdown() would leave the base singleton in place, making a
 // subsequent Init fail with ErrRuntimeAlreadyInitialized.
-var currentRuntimePlugin *plugin.RuntimePlugin
+//
+// It is an atomic.Pointer so the Shutdown-side read/clear has a happens-before
+// edge with the Init-side store without sharing finalizerMu: Shutdown writes
+// other state under finalizerMu, and an unsynchronized bare pointer write could
+// race with the Shutdown goroutine's read.
+var currentRuntimePlugin atomic.Pointer[plugin.RuntimePlugin]
 
 // setupDriverLoggerFn configures the driver's component logger
 // (ray_go_{PID}.log). It is a package-level variable so tests can observe and
@@ -407,7 +413,7 @@ func InitWithOptions(opts *options.InitializeOptions) error {
 	// Retain the plugin so api.Shutdown can perform full teardown
 	// (ClearAllCachedClients + base.Shutdown), resetting the base runtime
 	// singleton for a later re-init.
-	currentRuntimePlugin = runtimePlugin
+	currentRuntimePlugin.Store(runtimePlugin)
 
 	// Store handle in api's service locator
 	setHandle(handle)
@@ -448,14 +454,14 @@ func Shutdown() {
 	finalizerMu.Lock()
 	defer finalizerMu.Unlock()
 
-	if currentRuntimePlugin != nil {
+	if runtimePlugin := currentRuntimePlugin.Load(); runtimePlugin != nil {
 		// Full plugin teardown: ClearAllCachedClients + base.Shutdown. This also
 		// resets the base runtime singleton and clears the plugin's handle, so a
 		// subsequent InitWithOptions re-initializes cleanly.
-		if err := currentRuntimePlugin.Shutdown(); err != nil {
+		if err := runtimePlugin.Shutdown(); err != nil {
 			log.Log.Error(err, "failed to shutdown runtime plugin")
 		}
-		currentRuntimePlugin = nil
+		currentRuntimePlugin.Store(nil)
 	} else if ok && handle != nil && handle.Runtime() != nil {
 		// Local mode or worker-side runtime: no plugin loaded, tear down the
 		// native runtime directly.

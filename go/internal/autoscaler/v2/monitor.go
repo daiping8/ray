@@ -137,7 +137,7 @@ type AutoscalerMonitor struct {
 
 // NewAutoscalerMonitor creates and initializes an AutoscalerMonitor instance.
 func NewAutoscalerMonitor(address string, configReader instance_manager.IConfigReader, logDir string, monitorIP string, gcsClient gcs.Client) (*AutoscalerMonitor, error) {
-	// The client is injected by the caller (D5); fall back to the global
+	// The client is injected by the caller; fall back to the global
 	// singleton fast path when the caller has none (kept for tests and callers
 	// that already set gcs.SetClient). The native.ConnectClient fallback is
 	// removed: the thin layer never imports internal/gcs/native.

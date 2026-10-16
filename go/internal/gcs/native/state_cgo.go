@@ -473,11 +473,14 @@ func (s *stateCgoClient) GetAllResourceUsage() (*proto.ResourceUsageBatchData, e
 	if err != nil {
 		return nil, err
 	}
+	// Register the free on every path below (including the empty-return path:
+	// a non-NULL zero-length buffer must still be released, mirroring how the
+	// cErr defer is registered early).
+	defer C.free(unsafe.Pointer(cSerialized))
 	if cSerialized == nil || cSize == 0 {
 		return nil, nil
 	}
 
-	defer C.free(unsafe.Pointer(cSerialized))
 	serialized := C.GoBytes(unsafe.Pointer(cSerialized), cSize)
 
 	var result proto.ResourceUsageBatchData
@@ -759,10 +762,13 @@ func (s *stateCgoClient) GetSystemConfig() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Register the free on every path below (including the empty-return path:
+	// a non-NULL zero-length buffer must still be released, mirroring how the
+	// cErr defer is registered early).
+	defer C.free(unsafe.Pointer(cSerialized))
 	if cSerialized == nil || cSize == 0 {
 		return "", nil
 	}
 
-	defer C.free(unsafe.Pointer(cSerialized))
 	return string(C.GoBytes(unsafe.Pointer(cSerialized), cSize)), nil
 }

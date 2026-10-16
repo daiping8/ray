@@ -393,7 +393,8 @@ func (f *fakeMonitorRunner) Run(ctx context.Context) error {
 	return nil
 }
 
-// TestRunLogMonitorFailsFastOnPluginUnloadable verifies the D3 pre-check.
+// TestRunLogMonitorFailsFastOnPluginUnloadable verifies the startup plugin
+// loadability pre-check.
 func TestRunLogMonitorFailsFastOnPluginUnloadable(t *testing.T) {
 	deps := runnerDeps{
 		validatePlugin: func() error {
