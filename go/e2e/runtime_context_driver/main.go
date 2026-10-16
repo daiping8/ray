@@ -14,13 +14,12 @@
 
 // runtime_context_driver is a Ray Go driver application that verifies the
 // RuntimeContext and resource-ID APIs end to end on a real cluster. It
-// covers the gaps closed to align the Go runtime with Java/cpp (see
-// docs/superpowers/specs/2026-09-18-go-runtime-vs-java-cpp-gap-comparison.md):
+// exercises the surfaces covered by the Go/Java/C++ gap-comparison analysis:
 //
-//	6.1 RuntimeContext previously-placeholder methods:
-//	   WasCurrentActorRestarted / GetAllNodeInfo / GetAllActorInfo /
-//	   GetAllActorInfoByFilter / GetCurrentActorHandle / GetGpuIds
-//	8.1 GetAvailableResourceIds / GetGpuIds user APIs
+//	RuntimeContext methods: the previously-placeholder methods
+//	    WasCurrentActorRestarted / GetAllNodeInfo / GetAllActorInfo /
+//	    GetAllActorInfoByFilter / GetCurrentActorHandle / GetGpuIds
+//	Resource-ID APIs: GetAvailableResourceIds / GetGpuIds user APIs
 //
 // It asserts both the driver (non-actor) context and the actor context (via
 // the userfuncs.RuntimeContextProbe actor), matching Java's RuntimeContext

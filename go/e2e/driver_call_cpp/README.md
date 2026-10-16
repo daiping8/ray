@@ -3,15 +3,15 @@
 Verifies spec items **10.2 Go -> C++ calls** and **10.5 C++ function
 descriptor** from the Go-runtime-vs-Java/C++ gap-comparison design document.
 
-## Coverage (AC mapping)
+## Coverage
 
-| Case | AC | Coverage |
-|---|---|---|
-| `testCppFunctionDescriptor` | AC5 / AC6 | 10.5: `CppFunctionDescriptor` construction, `FunctionDescriptorFromListWithLanguage(LanguageCpp, ...)` parsing, `ToList()` 3-element `[functionName, caller, className]`, `GetLanguage()`, `Hash()` stability, invalid-input rejection |
-| `testAdd` | AC1 | 10.2: `RemoteCpp[int]("add", "")` + `Call(10, 20)` -> 30 |
-| `testVoid` | AC2 | 10.2: `RemoteCppVoid("log_event", "")` returns no value, `ObjectRef == nil` |
-| `testCrossLanguageTypes` | AC7 | 10.2: string / int slice / string->int map / fully-exported struct cross-language round trip |
-| `testActor` | AC3 / AC4 | 10.2: `RemoteCppActor("create_actor", "Calculator")` creates a C++ Actor, `CppActorTask[int](handle, "add", ...)` method call with state accumulation, call fails after `KillWithNoRestart()` (confirmed by polling) |
+| Case | Coverage |
+|---|---|
+| `testCppFunctionDescriptor` | 10.5: `CppFunctionDescriptor` construction, `FunctionDescriptorFromListWithLanguage(LanguageCpp, ...)` parsing, `ToList()` 3-element `[functionName, caller, className]`, `GetLanguage()`, `Hash()` stability, invalid-input rejection |
+| `testAdd` | 10.2: `RemoteCpp[int]("add", "")` + `Call(10, 20)` -> 30 |
+| `testVoid` | 10.2: `RemoteCppVoid("log_event", "")` returns no value, `ObjectRef == nil` |
+| `testCrossLanguageTypes` | 10.2: string / int slice / string->int map / fully-exported struct cross-language round trip |
+| `testActor` | 10.2: `RemoteCppActor("create_actor", "Calculator")` creates a C++ Actor, `CppActorTask[int](handle, "add", ...)` method call with state accumulation, call fails after `KillWithNoRestart()` (confirmed by polling) |
 
 ## How it works
 
@@ -86,7 +86,7 @@ AC4 call after KillWithNoRestart correctly failed: ...
 
 ## Files
 
-- `main.go` — the Go driver (covers AC1-AC7)
+- `main.go` — the Go driver (implements all five test cases)
 - `cpp_xlang_worker.cc` — the C++ worker plugin (registers add/log_event/
   concat/echo_list/echo_map/echo_student and the Calculator actor)
 - `BUILD.bazel` — build targets for the driver (go_binary) and the worker

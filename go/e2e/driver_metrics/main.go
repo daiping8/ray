@@ -13,27 +13,26 @@
 // limitations under the License.
 
 // driver_metrics is a Ray Go driver that verifies the user Metrics API end to
-// end on a real cluster (and the local-mode not-supported behavior). It covers
-// the gap closed to align the Go runtime with Java/cpp (see
-// docs/superpowers/specs/2026-09-18-go-runtime-vs-java-cpp-gap-comparison.md):
+// end on a real cluster (and the local-mode not-supported behavior). It
+// exercises the surfaces covered by the Go/Java/C++ gap-comparison analysis:
 //
-//	13.1 The user Metrics API (Count / Gauge / Sum / Histogram) was completely
-//	    missing. This driver exercises the go/pkg/runtime/metric package over
-//	    the cgo MetricBackend (metric_ops bridge -> stats::Metric) in cluster
-//	    mode: tag key registration, the four metric types with tags, Record
-//	    with aligned tag values, Unregister, and rejection of a stale handle
-//	    after unregister.
+//	User Metrics API: the user Metrics API (Count / Gauge / Sum / Histogram)
+//	    was completely missing. This driver exercises the go/pkg/runtime/metric
+//	    package over the cgo MetricBackend (metric_ops bridge -> stats::Metric)
+//	    in cluster mode: tag key registration, the four metric types with tags,
+//	    Record with aligned tag values, Unregister, and rejection of a stale
+//	    handle after unregister.
 //
 // Cluster mode (--run-mode=driver, ray job submit) covers:
-//   - RegisterTagKey registers a reusable tag key (AC11)
+//   - RegisterTagKey registers a reusable tag key
 //   - NewCount / NewGauge / NewSum / NewHistogram register through the C++
-//     bridge and Record reports values into the core worker stats (AC11/AC12)
+//     bridge and Record reports values into the core worker stats
 //   - Unregister releases the metric, and a subsequent Record on the same
-//     handle is rejected (AC13)
+//     handle is rejected
 //
-// Local mode (--run-mode=local) covers AC14: the metric backend is not
-// registered in local mode, so registration and Record report a clear
-// not-supported error instead of panicking.
+// Local mode (--run-mode=local) covers the not-supported behavior: the metric
+// backend is not registered in local mode, so registration and Record report a
+// clear not-supported error instead of panicking.
 //
 // Build & submit as a Ray job:
 //

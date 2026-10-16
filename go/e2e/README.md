@@ -22,7 +22,7 @@ e2e/
 ├── global_state_accessor_driver/  # GlobalStateAccessor production implementation + actor-state filter pushdown (spec 12.3 / 12.5)
 ├── runtime_env_driver/         # User-side RuntimeEnv API + Autoscaler status-report loop (spec 7.1 / 12.4)
 ├── zero_copy_benchmark/        # Zero-copy Get performance benchmark (local / cross, 4MB / 64MB)
-├── userfuncs/                  # Shared user-function package (depended on by every E2E driver)
+├── userfuncs/                  # Shared user-function package (used by the Go-task/actor drivers)
 │   ├── BUILD.bazel
 │   ├── funcs.go                # User function implementations
 │   ├── actors.go               # Actor types (Counter, RuntimeContextProbe, etc.)
@@ -39,7 +39,8 @@ e2e/
 ## E2E cases
 
 Every case is submitted to a local Ray cluster as a standalone driver binary.
-The common flow:
+The common flow (steps 1 and 3 apply to the drivers that consume the
+userfuncs plugin — 9 of the 12 drivers below; the others skip them):
 
 ```bash
 # 1. Build the userfuncs plugin
@@ -74,10 +75,11 @@ cd job_dir && ray job submit --working-dir . -- ./driver_app
 
 ## userfuncs shared function package
 
-`userfuncs/` is the shared user-function package for the E2E cases, compiled to
-the `userfuncs.so` plugin that the Go worker loads. Drivers point the plugin
-out through JobConfig's `code_search_path`, and the worker resolves function and
-actor descriptors from it.
+`userfuncs/` is the shared user-function package used by the Go-task/actor
+drivers (9 of the 12 drivers), compiled to the `userfuncs.so` plugin that the
+Go worker loads. Those drivers point the plugin out through JobConfig's
+`code_search_path`, and the worker resolves function and actor descriptors
+from it.
 
 ## Lockstep and the packaging hash gate
 

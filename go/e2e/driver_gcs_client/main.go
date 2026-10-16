@@ -14,32 +14,32 @@
 
 // driver_gcs_client is a Ray Go driver that verifies the user-facing GCSClient
 // interface extension end to end on a real cluster (and the local-mode
-// not-supported behavior). It covers the gaps closed to align the Go runtime
-// with Java/cpp (see
-// docs/superpowers/specs/2026-09-18-go-runtime-vs-java-cpp-gap-comparison.md):
+// not-supported behavior). It exercises the surfaces covered by the
+// Go/Java/C++ gap-comparison analysis:
 //
-//	12.1 The user-facing GCSClient interface was too narrow (only 4 methods)
-//	    and had no user entry point. This driver exercises the 6 added query
-//	    methods (GetPlacementGroupInfo / GetPlacementGroupInfoByName /
-//	    GetAllPlacementGroupInfo / GetInternalKV / GetAllNodeInfo /
-//	    GetAllActorInfo) through api.GetGCSClient(), which reuses the
-//	    gcsClientCache.
-//	12.6 Placement Group had no name-based query in the GCS client layer.
-//	    This driver asserts GetPlacementGroupInfoByName resolves a PG created
-//	    through the submitter path.
+//	GCSClient interface extension: the user-facing GCSClient interface was
+//	    too narrow (only 4 methods) and had no user entry point. This driver
+//	    exercises the 6 added query methods (GetPlacementGroupInfo /
+//	    GetPlacementGroupInfoByName / GetAllPlacementGroupInfo /
+//	    GetInternalKV / GetAllNodeInfo / GetAllActorInfo) through
+//	    api.GetGCSClient(), which reuses the gcsClientCache.
+//	Placement Group name-based query: Placement Group had no name-based query
+//	    in the GCS client layer. This driver asserts
+//	    GetPlacementGroupInfoByName resolves a PG created through the
+//	    submitter path.
 //
 // Cluster mode (--run-mode=driver, ray job submit) covers:
-//   - api.GetGCSClient() resolves to a working client (AC9)
+//   - api.GetGCSClient() resolves to a working client
 //   - GetPlacementGroupInfo(id) / GetPlacementGroupInfoByName(name, ns) /
 //     GetAllPlacementGroupInfo() against a live PG, including (nil, nil) after
-//     removal (AC9/AC10)
+//     removal
 //   - GetInternalKV round trip: put via the internal gcs client, read back via
-//     the api GCS client (AC9)
-//   - GetAllNodeInfo() returns the cluster nodes (AC9)
+//     the api GCS client
+//   - GetAllNodeInfo() returns the cluster nodes
 //   - GetAllActorInfo() returns created actors, including an ALIVE state
-//     filter (AC9)
+//     filter
 //
-// Local mode (--run-mode=local) covers AC9's not-supported behavior: the GCS
+// Local mode (--run-mode=local) covers the not-supported behavior: the GCS
 // client factory is not registered in local mode, so GetGCSClient() returns
 // ErrGCSClientFactoryNotRegistered.
 //

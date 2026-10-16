@@ -125,6 +125,9 @@ result, err := resultRef.Get()
 // result == 30
 ```
 
+This snippet illustrates the internal precompiled-mode API, which is not part
+of the open-source tree (the same adaptation noted for raygen above).
+
 ## Performance comparison
 
 | Approach | Function call | Serialization | Task execution |
@@ -132,8 +135,6 @@ result, err := resultRef.Get()
 | **Reflection (old)** | 500ns | 50μs | 500μs |
 | **Code generation (new)** | 5ns | 5μs | 50μs |
 | **Improvement** | **100x** | **10x** | **10x** |
-
-See [PERFORMANCE_COMPARISON.md](../../PERFORMANCE_COMPARISON.md) for details.
 
 ## File layout
 
@@ -205,6 +206,4 @@ bazel build //go/e2e/userfuncs/plugin:userfuncs_plugin
 
 ## References
 
-- [HIGH_PERFORMANCE_ARCHITECTURE.md](../../HIGH_PERFORMANCE_ARCHITECTURE.md) - full architecture design
-- [PERFORMANCE_COMPARISON.md](../../PERFORMANCE_COMPARISON.md) - detailed performance comparison
 - [doc.go](doc.go) - package documentation

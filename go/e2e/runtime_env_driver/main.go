@@ -14,10 +14,9 @@
 
 // runtime_env_driver is a Ray Go driver that verifies the user-facing RuntimeEnv
 // API and the autoscaler state report path end to end on a real cluster. It
-// covers the gaps closed to align the Go runtime with Java/cpp (see
-// docs/superpowers/specs/2026-09-18-go-runtime-vs-java-cpp-gap-comparison.md):
+// exercises the surfaces covered by the Go/Java/C++ gap-comparison analysis:
 //
-//	7.1 User-facing RuntimeEnv API was missing: users could only hand-write a
+//	User-facing RuntimeEnv API: was missing — users could only hand-write a
 //	    runtime_env JSON string. This driver exercises the full value-object
 //	    API (NewRuntimeEnv / NewRuntimeEnvFromJSON, Set/SetJSON/Get/GetJSON/
 //	    Contains/Remove/IsEmpty, SetConfig/GetConfig, Serialize /
@@ -27,7 +26,7 @@
 //	    workers actually receive them (RuntimeContext.RuntimeEnv()), including
 //	    the "config" key that worker-side extractConfigField parses
 //	    (internal/runtime_env/utils.go).
-//	12.4 Autoscaler state reporting was a placeholder
+//	Autoscaler state reporting: was a placeholder
 //	    (go/internal/gcs/native/autoscaler_cgo.go returned ErrNotImplemented).
 //	    This driver asserts the GCS client resolves to a production
 //	    implementation and exercises the report -> query round trip:

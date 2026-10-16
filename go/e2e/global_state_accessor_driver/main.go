@@ -14,20 +14,20 @@
 
 // global_state_accessor_driver is a Ray Go driver application that verifies the
 // GlobalStateAccessor production implementation and the actor-list state
-// filter end to end on a real cluster. It covers the gaps closed to align the
-// Go runtime with Java/cpp (see
-// docs/superpowers/specs/2026-09-18-go-runtime-vs-java-cpp-gap-comparison.md):
+// filter end to end on a real cluster. It exercises the surfaces covered by
+// the Go/Java/C++ gap-comparison analysis:
 //
-//	12.3 GlobalStateAccessor interface previously had no production
-//	    implementation: gcs.GetGlobalStateAccessor() returned ErrNotImplemented.
-//	    This driver asserts the singleton resolves to a working implementation
-//	    and exercises representative queries (jobs, nodes, actors, workers,
-//	    system config, next job id) against the live GCS.
-//	12.5 Actor list did not support filtering by state: ListActors only
-//	    filtered by job id. This driver asserts GetAllActorInfo(jobID, state)
-//	    pushes the state filter down to the GCS: only actors in the requested
-//	    state are returned (ALIVE vs DEAD), matching Java
-//	    GcsClient.getAllActorInfo(JobId, ActorState).
+//	GlobalStateAccessor implementation: the interface previously had no
+//	    production implementation: gcs.GetGlobalStateAccessor() returned
+//	    ErrNotImplemented. This driver asserts the singleton resolves to a
+//	    working implementation and exercises representative queries (jobs,
+//	    nodes, actors, workers, system config, next job id) against the live
+//	    GCS.
+//	Actor-list state filter: actor list did not support filtering by state:
+//	    ListActors only filtered by job id. This driver asserts
+//	    GetAllActorInfo(jobID, state) pushes the state filter down to the GCS:
+//	    only actors in the requested state are returned (ALIVE vs DEAD),
+//	    matching Java GcsClient.getAllActorInfo(JobId, ActorState).
 //
 // Build & submit as a Ray job:
 //

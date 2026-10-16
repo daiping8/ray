@@ -13,18 +13,17 @@
 // limitations under the License.
 
 // driver_placement_group is a Ray Go driver that verifies the Placement Group
-// user API end to end on a real cluster (and in local mode). It covers the
-// gaps closed to align the Go runtime with Java/cpp (see
-// docs/superpowers/specs/2026-09-18-go-runtime-vs-java-cpp-gap-comparison.md):
+// user API end to end on a real cluster (and in local mode). It exercises the
+// surfaces covered by the Go/Java/C++ gap-comparison analysis:
 //
-//	4.1 Placement Group user API was completely missing (only a placeholder).
-//	4.2 Placement Group strategy was not exposed.
-//	3.1 Task-level scheduling strategy was merged into the placement group
+//	Placement Group user API: was completely missing (only a placeholder).
+//	Placement Group strategy: was not exposed.
+//	Task-level scheduling strategy: was merged into the placement group
 //	    strategy (PACK/SPREAD/STRICT_PACK/STRICT_SPREAD).
 //
 // Cluster mode (--run-mode=driver, ray job submit) covers:
 //   - PG lifecycle: Create -> Wait -> Get(id) / GetByName(name, ns) /
-//     GetAll -> Remove -> Get(id) returns (nil, nil) (AC1/AC3/AC4/AC5/AC6/AC7)
+//     GetAll -> Remove -> Get(id) returns (nil, nil)
 //   - PG task placement: Remote(...).WithPlacementGroup(pg, bundleIndex) runs
 //     on a cluster node (call.go taskOptions[T] main path)
 //   - PG actor placement: Actor(...).WithPlacementGroup(pg, bundleIndex) actor
@@ -32,7 +31,7 @@
 //   - Validation: invalid strategy / empty name / nil options / empty bundles
 //     are rejected before reaching the submitter
 //
-// Local mode (--run-mode=local) covers AC8:
+// Local mode (--run-mode=local) covers:
 //   - create / remove / wait succeed via the in-process map simulation
 //   - get / getByName / getAll return a not-supported error because the GCS
 //     client factory is not registered (aligned with Java RayDevRuntime
