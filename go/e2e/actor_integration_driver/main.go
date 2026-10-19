@@ -53,6 +53,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -65,6 +66,35 @@ import (
 	"github.com/ray-project/ray/go/pkg/runtime/api"
 	"github.com/ray-project/ray/go/pkg/runtime/submitter"
 )
+
+// errGetTimeout marks a Get that did not complete within its budget; it is
+// distinct from a task failure, so deadline loops treat it as "not yet
+// decided" rather than as evidence of death.
+var errGetTimeout = errors.New("Get timed out")
+
+// getWithTimeout bounds a blocking ObjectRef.Get: a Get on a ref whose worker
+// hangs (dying but not dead — task neither completes nor errors) never
+// returns, which would block a deadline loop past its wall-clock bound. The
+// abandoned goroutine leaks until process exit, acceptable in a one-shot
+// driver binary.
+func getWithTimeout[T any](ref *api.ObjectRef[T], budget time.Duration) (T, error) {
+	type result struct {
+		val T
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		v, err := ref.Get()
+		ch <- result{v, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.val, r.err
+	case <-time.After(budget):
+		var zero T
+		return zero, errGetTimeout
+	}
+}
 
 // initRay initializes the Ray runtime with a JobConfig that carries the
 // userfuncs.so code search path, and returns a shutdown function.
@@ -509,6 +539,11 @@ func testActorCreationOptions() error {
 		return fmt.Errorf("expected a non-nil actor handle for the actor created with options")
 	}
 
+	// Kill on every exit path: the detached actor survives job teardown by
+	// design, and this test's error returns must not leak its worker (a
+	// leaked worker pins 1 CPU cluster-wide).
+	defer func() { _ = api.KillActor(handle, true) }()
+
 	// The actor must be created and callable with all three options in effect.
 	typed := api.NewActorHandleImpl[int](handle.ID())
 	ref, err := typed.Task((*userfuncs.Counter).Add, 3).Remote()
@@ -550,9 +585,6 @@ func testActorCreationOptions() error {
 	}
 	fmt.Println("  detached actor registered with IsDetached=true in GCS ✓")
 
-	if err := releaseActor(handle.ID()); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -587,9 +619,9 @@ func testActorHandleKill() error {
 	for {
 		ref, err := typed.Task((*userfuncs.Counter).Value).Remote()
 		if err == nil {
-			_, err = api.Get(ref)
+			_, err = getWithTimeout(ref, time.Until(deadline))
 		}
-		if err != nil {
+		if err != nil && !errors.Is(err, errGetTimeout) {
 			confirmedDead = true
 			break
 		}
@@ -617,6 +649,26 @@ func testActorHandleKill() error {
 		return fmt.Errorf("handle.Kill() failed: %w", err)
 	}
 
+	// Poll until the old instance stops serving: Kill() is asynchronous
+	// (GCS -> raylet -> SIGKILL), so an immediate call can still land on the
+	// dying worker and false-positive the revival check below (the old
+	// instance would answer Value()==100 before it dies, "proving" a restart
+	// that never happened).
+	goneDeadline := time.Now().Add(10 * time.Second)
+	for {
+		ref, err := rtTyped.Task((*userfuncs.Counter).Value).Remote()
+		if err == nil {
+			_, err = getWithTimeout(ref, time.Until(goneDeadline))
+		}
+		if err != nil && !errors.Is(err, errGetTimeout) {
+			break
+		}
+		if time.Now().After(goneDeadline) {
+			return fmt.Errorf("old actor instance still serving %d s after Kill()", 10)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
 	// Poll until the actor comes back (restarted) and serves calls again. The
 	// restart is asynchronous; a short window of submission failures is
 	// expected while the old worker dies and the new one is leased.
@@ -625,7 +677,7 @@ func testActorHandleKill() error {
 	for {
 		ref, err := rtTyped.Task((*userfuncs.Counter).Value).Remote()
 		if err == nil {
-			v, gerr := api.Get(ref)
+			v, gerr := getWithTimeout(ref, time.Until(restartDeadline))
 			if gerr == nil && v == 100 {
 				restarted = true
 				break
@@ -680,10 +732,10 @@ func testActorKill() error {
 	for {
 		ref, err = typed.Task((*userfuncs.Counter).Value).Remote()
 		if err == nil {
-			_, err = api.Get(ref)
+			_, err = getWithTimeout(ref, time.Until(deadline))
 		}
-		if err != nil {
-			break // worker is dead: submission or execution failed
+		if err != nil && !errors.Is(err, errGetTimeout) {
+			break // submission or execution failed: worker is dead
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("expected actor to be unavailable after kill")

@@ -1565,13 +1565,20 @@ func extractActorFunctionDescriptor(actorClass interface{}) *function.GoFunction
 	return function.NewGoActorMethodDescriptorOrUnknown(moduleName, pkgPath, typeName, function.ConstructorName)
 }
 
+// objectRefShape is satisfied by every ObjectRef[T] instantiation regardless
+// of T, letting by-ref detection catch typed refs (e.g. *ObjectRef[[]byte])
+// that the direct *ObjectRef[any] assertion alone would miss.
+type objectRefShape interface {
+	ObjectID() ids.ObjectID
+}
+
 // convertArgToFunctionArg converts an interface{} argument to a FunctionArg.
 // This function implements object passing threshold control:
 // - Objects smaller than threshold (100KB) are passed by value (serialized directly)
 // - Objects larger than threshold are passed by reference (stored in object store)
 func convertArgToFunctionArg(arg interface{}) function.FunctionArg {
-	if objRef, ok := arg.(*ObjectRef[any]); ok {
-		return function.NewFunctionArgByRef(objRef.ObjectID(), nil)
+	if ref, ok := arg.(objectRefShape); ok {
+		return function.NewFunctionArgByRef(ref.ObjectID(), nil)
 	}
 
 	// Use the global serializer from object package

@@ -256,6 +256,11 @@ func testInternalKV(ctx context.Context) error {
 	if _, err := internal.Put(ctx, ns, key, value, true); err != nil {
 		return fmt.Errorf("internal Put failed: %w", err)
 	}
+	defer func() {
+		if _, err := internal.Del(ctx, ns, key, false); err != nil {
+			fmt.Printf("warning: internal Del cleanup failed: %v\n", err)
+		}
+	}()
 	got, err := apiClient.GetInternalKV(ctx, ns, key)
 	if err != nil {
 		return fmt.Errorf("GetInternalKV failed: %w", err)
@@ -265,18 +270,24 @@ func testInternalKV(ctx context.Context) error {
 	}
 	fmt.Printf("  GetInternalKV(%s) round trip matches ✓\n", key)
 
-	// GetInternalKV on a missing key must not panic (Java GcsClient returns
-	// null; Go returns a nil slice or an error depending on the bridge).
-	if _, err := apiClient.GetInternalKV(ctx, ns, key+"-missing"); err == nil {
-		// Accept both: nil value (treated as missing) or a key-not-found error.
-		fmt.Println("  GetInternalKV(missing) returned without error (nil value) ✓")
+	// GetInternalKV on a missing key must never yield a value. Whether the
+	// bridge reports absence as (empty, nil) or (empty, error) is not
+	// verifiable without a live GCS (the C++ authority,
+	// GlobalStateAccessor::GetInternalKV, returns nullptr on non-OK and an
+	// empty string on OK), so assert the invariant that holds under either
+	// contract — an empty result — which still catches a bridge regression
+	// that returns a stale or wrong value. The old check printed a checkmark
+	// for every outcome and detected nothing.
+	missing, err := apiClient.GetInternalKV(ctx, ns, key+"-missing")
+	if len(missing) != 0 {
+		return fmt.Errorf("GetInternalKV(%q) = %q, want empty: a missing key must never return a value", key+"-missing", missing)
+	}
+	if err != nil {
+		fmt.Printf("  GetInternalKV(missing) -> empty value with error %v (absent key) ✓\n", err)
 	} else {
-		fmt.Printf("  GetInternalKV(missing) returned error: %v ✓\n", err)
+		fmt.Println("  GetInternalKV(missing) -> empty value, no error ✓")
 	}
 
-	if _, err := internal.Del(ctx, ns, key, false); err != nil {
-		return fmt.Errorf("internal Del cleanup failed: %w", err)
-	}
 	return nil
 }
 

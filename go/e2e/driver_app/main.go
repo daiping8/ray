@@ -49,6 +49,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -63,6 +64,35 @@ import (
 	"github.com/ray-project/ray/go/pkg/runtime/local"
 	"github.com/ray-project/ray/go/e2e/userfuncs"
 )
+
+// errGetTimeout marks a Get that did not complete within its budget; it is
+// distinct from a task failure, so deadline loops treat it as "not yet
+// decided" rather than as evidence of death.
+var errGetTimeout = errors.New("Get timed out")
+
+// getWithTimeout bounds a blocking ObjectRef.Get: a Get on a ref whose worker
+// hangs (dying but not dead — task neither completes nor errors) never
+// returns, which would block a deadline loop past its wall-clock bound. The
+// abandoned goroutine leaks until process exit, acceptable in a one-shot
+// driver binary.
+func getWithTimeout[T any](ref *api.ObjectRef[T], budget time.Duration) (T, error) {
+	type result struct {
+		val T
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		v, err := ref.Get()
+		ch <- result{v, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.val, r.err
+	case <-time.After(budget):
+		var zero T
+		return zero, errGetTimeout
+	}
+}
 
 // ============================================================================
 // Application configuration
@@ -88,14 +118,14 @@ var (
 	logDirFlag       = flag.String("log-dir", "", "Log directory")
 )
 
-func parseRunMode(s string) RunMode {
+func parseRunMode(s string) (RunMode, error) {
 	switch s {
 	case "driver":
-		return RunModeDriver
+		return RunModeDriver, nil
 	case "local":
-		return RunModeLocal
+		return RunModeLocal, nil
 	default:
-		return RunModeDriver
+		return RunModeDriver, fmt.Errorf("unknown --run-mode %q (want \"driver\" or \"local\")", s)
 	}
 }
 
@@ -105,7 +135,12 @@ func parseRunMode(s string) RunMode {
 
 func main() {
 	flag.Parse()
-	runMode := parseRunMode(*runModeFlag)
+	runMode, err := parseRunMode(*runModeFlag)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		flag.Usage()
+		os.Exit(1)
+	}
 
 	// Initialize logger
 	if err := zap.SetupDefaultLogger(); err != nil {
@@ -787,10 +822,10 @@ func demonstrateKillActor() error {
 	for {
 		ref, err = typed.Task((*userfuncs.Counter).Value).Remote()
 		if err == nil {
-			_, err = ref.Get()
+			_, err = getWithTimeout(ref, time.Until(deadline))
 		}
-		if err != nil {
-			break // worker is dead: submission or execution failed
+		if err != nil && !errors.Is(err, errGetTimeout) {
+			break // submission or execution failed: worker is dead
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("expected actor to be unavailable after kill")

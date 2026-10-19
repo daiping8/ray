@@ -175,10 +175,10 @@ func benchCrossProcess(size int, iterations, warmup int) (*Stats, error) {
 
 	for i := 0; i < warmup+iterations; i++ {
 		start := time.Now()
-		_, err := api.Put(payload, nil)
+		ref, err := api.Put(payload, nil)
 		if err == nil {
 			var retRef *api.ObjectRef[[]byte]
-			retRef, err = api.Remote[[]byte](userfuncs.GetEchoBytes()).Call(payload)
+			retRef, err = api.Remote[[]byte](userfuncs.GetEchoBytes()).Call(ref)
 			if err == nil {
 				var got []byte
 				got, err = retRef.Get()
