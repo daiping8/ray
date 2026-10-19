@@ -81,9 +81,16 @@ func getWithTimeout[T any](ref *api.ObjectRef[T], budget time.Duration) (T, erro
 	}
 }
 
+// maxE2ETimeout caps the scaled e2e deadline so a huge
+// RAY_GO_E2E_TIMEOUT_SCALE cannot overflow time.Duration into a negative
+// (shorter) deadline.
+const maxE2ETimeout = 24 * time.Hour
+
 // e2eTimeout scales a base deadline by RAY_GO_E2E_TIMEOUT_SCALE (default 1.0,
 // floor 1.0): shared clusters export a larger value (e.g. 3) instead of
-// editing per-driver deadline constants when waits flake under load.
+// editing per-driver deadline constants when waits flake under load. The
+// scaled result is capped at maxE2ETimeout so the helper only ever loosens a
+// deadline.
 func e2eTimeout(base time.Duration) time.Duration {
 	s := os.Getenv("RAY_GO_E2E_TIMEOUT_SCALE")
 	if s == "" {
@@ -93,7 +100,11 @@ func e2eTimeout(base time.Duration) time.Duration {
 	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < 1.0 {
 		return base
 	}
-	return time.Duration(float64(base) * f)
+	scaled := float64(base) * f
+	if scaled > float64(maxE2ETimeout) {
+		return maxE2ETimeout
+	}
+	return time.Duration(scaled)
 }
 
 // Student mirrors the C++ Student struct (name, age) registered in
@@ -383,23 +394,18 @@ func testActor() error {
 	// so poll until a method call fails, proving both the kill and no-restart
 	// semantics. A call succeeding while the worker is still dying is fine.
 	deadline := time.Now().Add(e2eTimeout(5 * time.Second))
-	confirmedDead := false
 	for {
 		deadRef, err := api.CppActorTask[int](handle, "get_value").Remote()
 		if err == nil {
 			_, err = getWithTimeout(deadRef, time.Until(deadline))
 		}
 		if err != nil && !errors.Is(err, errGetTimeout) {
-			confirmedDead = true
 			break
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("expected C++ actor to be unavailable after KillWithNoRestart()")
 		}
 		time.Sleep(200 * time.Millisecond)
-	}
-	if !confirmedDead {
-		return fmt.Errorf("C++ actor still alive after KillWithNoRestart()")
 	}
 	fmt.Printf("AC4 call after KillWithNoRestart correctly failed: %v\n", err)
 	return nil

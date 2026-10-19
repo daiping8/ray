@@ -1570,6 +1570,9 @@ type objectRefShape interface {
 // - Objects larger than threshold are passed by reference (stored in object store)
 func convertArgToFunctionArg(arg interface{}) function.FunctionArg {
 	if ref, ok := arg.(objectRefShape); ok {
+		if rv := reflect.ValueOf(ref); rv.Kind() == reflect.Ptr && rv.IsNil() {
+			panic("convertArgToFunctionArg: nil ObjectRef passed as a task argument")
+		}
 		return function.NewFunctionArgByRef(ref.ObjectID(), nil)
 	}
 

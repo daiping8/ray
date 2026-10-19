@@ -98,9 +98,16 @@ func getWithTimeout[T any](ref *api.ObjectRef[T], budget time.Duration) (T, erro
 	}
 }
 
+// maxE2ETimeout caps the scaled e2e deadline so a huge
+// RAY_GO_E2E_TIMEOUT_SCALE cannot overflow time.Duration into a negative
+// (shorter) deadline.
+const maxE2ETimeout = 24 * time.Hour
+
 // e2eTimeout scales a base deadline by RAY_GO_E2E_TIMEOUT_SCALE (default 1.0,
 // floor 1.0): shared clusters export a larger value (e.g. 3) instead of
-// editing per-driver deadline constants when waits flake under load.
+// editing per-driver deadline constants when waits flake under load. The
+// scaled result is capped at maxE2ETimeout so the helper only ever loosens a
+// deadline.
 func e2eTimeout(base time.Duration) time.Duration {
 	s := os.Getenv("RAY_GO_E2E_TIMEOUT_SCALE")
 	if s == "" {
@@ -110,7 +117,11 @@ func e2eTimeout(base time.Duration) time.Duration {
 	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < 1.0 {
 		return base
 	}
-	return time.Duration(float64(base) * f)
+	scaled := float64(base) * f
+	if scaled > float64(maxE2ETimeout) {
+		return maxE2ETimeout
+	}
+	return time.Duration(scaled)
 }
 
 // requireUserfuncsPlugin fails fast when the plugin artifact is missing from
@@ -628,23 +639,18 @@ func testActorHandleKill() error {
 	// poll until a method call fails, proving both the kill and no-restart
 	// semantics (a call succeeding while the worker is still dying is fine).
 	deadline := time.Now().Add(e2eTimeout(5 * time.Second))
-	confirmedDead := false
 	for {
 		ref, err := typed.Task((*userfuncs.Counter).Value).Remote()
 		if err == nil {
 			_, err = getWithTimeout(ref, time.Until(deadline))
 		}
 		if err != nil && !errors.Is(err, errGetTimeout) {
-			confirmedDead = true
 			break
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("expected actor to be unavailable after KillWithNoRestart()")
 		}
 		time.Sleep(200 * time.Millisecond)
-	}
-	if !confirmedDead {
-		return fmt.Errorf("actor still alive after KillWithNoRestart()")
 	}
 	fmt.Println("  handle.KillWithNoRestart(): later calls fail ✓")
 
@@ -687,13 +693,11 @@ func testActorHandleKill() error {
 	// restart is asynchronous; a short window of submission failures is
 	// expected while the old worker dies and the new one is leased.
 	restartDeadline := time.Now().Add(e2eTimeout(15 * time.Second))
-	restarted := false
 	for {
 		ref, err := rtTyped.Task((*userfuncs.Counter).Value).Remote()
 		if err == nil {
 			v, gerr := getWithTimeout(ref, time.Until(restartDeadline))
 			if gerr == nil && v == 100 {
-				restarted = true
 				break
 			}
 		}
@@ -701,9 +705,6 @@ func testActorHandleKill() error {
 			return fmt.Errorf("restartable actor did not come back after Kill() within 15s")
 		}
 		time.Sleep(200 * time.Millisecond)
-	}
-	if !restarted {
-		return fmt.Errorf("restartable actor did not restart after Kill()")
 	}
 	fmt.Println("  handle.Kill() (noRestart=false) with maxRestarts=1: actor restarted, Value() -> 100 ✓")
 

@@ -490,7 +490,7 @@ func validateRuntimeHandle(v reflect.Value) error {
 	if !ok {
 		return fmt.Errorf("Initialize must return contract.RuntimeHandle, got %T", v.Interface())
 	}
-	if handle.Runtime() == nil {
+	if r := handle.Runtime(); r == nil || isNilReflectValue(reflect.ValueOf(r)) {
 		return fmt.Errorf("contract.RuntimeHandle.Runtime() must not be nil")
 	}
 	return nil

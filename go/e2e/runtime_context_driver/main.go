@@ -84,9 +84,16 @@ func initRay() error {
 	return nil
 }
 
+// maxE2ETimeout caps the scaled e2e deadline so a huge
+// RAY_GO_E2E_TIMEOUT_SCALE cannot overflow time.Duration into a negative
+// (shorter) deadline.
+const maxE2ETimeout = 24 * time.Hour
+
 // e2eTimeout scales a base deadline by RAY_GO_E2E_TIMEOUT_SCALE (default 1.0,
 // floor 1.0): shared clusters export a larger value (e.g. 3) instead of
-// editing per-driver deadline constants when waits flake under load.
+// editing per-driver deadline constants when waits flake under load. The
+// scaled result is capped at maxE2ETimeout so the helper only ever loosens a
+// deadline.
 func e2eTimeout(base time.Duration) time.Duration {
 	s := os.Getenv("RAY_GO_E2E_TIMEOUT_SCALE")
 	if s == "" {
@@ -96,7 +103,11 @@ func e2eTimeout(base time.Duration) time.Duration {
 	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < 1.0 {
 		return base
 	}
-	return time.Duration(float64(base) * f)
+	scaled := float64(base) * f
+	if scaled > float64(maxE2ETimeout) {
+		return maxE2ETimeout
+	}
+	return time.Duration(scaled)
 }
 
 // mustNotNilID fails the run when an expected non-nil ID is nil.
