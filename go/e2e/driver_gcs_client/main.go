@@ -58,8 +58,10 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/ray-project/ray/go/e2e/userfuncs"
@@ -91,6 +93,21 @@ func initRay() error {
 	}
 	log.Printf("driver code search path: %s", codeSearchPath)
 	return nil
+}
+
+// e2eTimeout scales a base deadline by RAY_GO_E2E_TIMEOUT_SCALE (default 1.0,
+// floor 1.0): shared clusters export a larger value (e.g. 3) instead of
+// editing per-driver deadline constants when waits flake under load.
+func e2eTimeout(base time.Duration) time.Duration {
+	s := os.Getenv("RAY_GO_E2E_TIMEOUT_SCALE")
+	if s == "" {
+		return base
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < 1.0 {
+		return base
+	}
+	return time.Duration(float64(base) * f)
 }
 
 // newPGName builds a unique placement group name for a test.
@@ -128,7 +145,7 @@ func internalClient() (gcs.Client, error) {
 // removal: the by-id query returns nil or a REMOVED-state entry (GCS keeps the
 // table entry with state=REMOVED; state diagram Created -> Removed).
 func waitPGGone(ctx context.Context, client api.GCSClient, id ids.PlacementGroupID) error {
-	deadline := time.Now().Add(15 * time.Second)
+	deadline := time.Now().Add(e2eTimeout(15 * time.Second))
 	for {
 		got, err := client.GetPlacementGroupInfo(ctx, id)
 		if err != nil {
@@ -163,6 +180,7 @@ func testPGQueries(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("CreatePlacementGroup failed: %w", err)
 	}
+	defer func() { _ = api.RemovePlacementGroup(ctx, pg.ID()) }()
 	if ready, err := pg.Wait(60); err != nil || !ready {
 		return fmt.Errorf("pg.Wait failed (err=%v, ready=%v)", err, ready)
 	}
@@ -339,6 +357,7 @@ func testActorInfo(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("create Counter actor failed: %w", err)
 	}
+	defer func() { _ = api.KillActor(handle, true) }()
 	actorID := handle.ID()
 	fmt.Printf("  created Counter actor %s ✓\n", actorID.Hex())
 
@@ -350,7 +369,7 @@ func testActorInfo(ctx context.Context) error {
 
 	// Unfiltered listing must include the actor (poll until GCS observes it).
 	aliveState := gcs.ActorStateNameAlive
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(e2eTimeout(30 * time.Second))
 	var all []*proto.ActorTableData
 	for {
 		all, err = client.GetAllActorInfo(ctx, nil, nil)
@@ -378,7 +397,7 @@ func testActorInfo(ctx context.Context) error {
 	fmt.Printf("  GetAllActorInfo(jobID, nil) contains actor %s ✓\n", actorID.Hex())
 
 	// ALIVE state filter must include the actor (poll until GCS reports ALIVE).
-	deadline = time.Now().Add(30 * time.Second)
+	deadline = time.Now().Add(e2eTimeout(30 * time.Second))
 	var alive []*proto.ActorTableData
 	for {
 		alive, err = client.GetAllActorInfo(ctx, &jobID, &aliveState)

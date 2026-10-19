@@ -53,8 +53,10 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/ray-project/ray/go/e2e/userfuncs"
@@ -85,6 +87,21 @@ func initRay() error {
 	}
 	log.Printf("driver code search path: %s", codeSearchPath)
 	return nil
+}
+
+// e2eTimeout scales a base deadline by RAY_GO_E2E_TIMEOUT_SCALE (default 1.0,
+// floor 1.0): shared clusters export a larger value (e.g. 3) instead of
+// editing per-driver deadline constants when waits flake under load.
+func e2eTimeout(base time.Duration) time.Duration {
+	s := os.Getenv("RAY_GO_E2E_TIMEOUT_SCALE")
+	if s == "" {
+		return base
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < 1.0 {
+		return base
+	}
+	return time.Duration(float64(base) * f)
 }
 
 // newPGName builds a unique placement group name for a test.
@@ -172,6 +189,7 @@ func testPGLifecycle(ctx context.Context) error {
 	if pg.ID().IsNil() {
 		return fmt.Errorf("created placement group has a nil id")
 	}
+	defer func() { _ = api.RemovePlacementGroup(ctx, pg.ID()) }()
 	if pg.Name() != name {
 		return fmt.Errorf("pg.Name() = %q, want %q", pg.Name(), name)
 	}
@@ -253,7 +271,7 @@ func testPGLifecycle(ctx context.Context) error {
 		return fmt.Errorf("RemovePlacementGroup failed: %w", err)
 	}
 	fmt.Println("  RemovePlacementGroup -> nil ✓")
-	deadline := time.Now().Add(15 * time.Second)
+	deadline := time.Now().Add(e2eTimeout(15 * time.Second))
 	for {
 		gone, err := api.GetPlacementGroup(ctx, pg.ID())
 		if err != nil {
@@ -288,6 +306,7 @@ func testPGBinding(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("CreatePlacementGroup (binding) failed: %w", err)
 	}
+	defer func() { _ = api.RemovePlacementGroup(ctx, pg.ID()) }()
 	ready, err := pg.Wait(60)
 	if err != nil {
 		return fmt.Errorf("pg.Wait (binding) failed: %w", err)
@@ -367,6 +386,7 @@ func testPGBinding(ctx context.Context) error {
 	if probe == nil || probe.ID().IsNil() {
 		return fmt.Errorf("PG-bound actor returned a nil handle")
 	}
+	defer func() { _ = api.KillActor(probe, true) }()
 	typed := api.NewActorHandleImpl[map[string]string](probe.ID())
 	ref, err := typed.Task((*userfuncs.RuntimeContextProbe).Probe).Remote()
 	if err != nil {
@@ -472,6 +492,7 @@ func testLocalPGChange() error {
 	if pg == nil || pg.ID().IsNil() {
 		return fmt.Errorf("local CreatePlacementGroup returned a nil id")
 	}
+	defer func() { _ = api.RemovePlacementGroup(context.Background(), pg.ID()) }()
 	fmt.Printf("  local create -> id %s ✓\n", pg.ID().Hex())
 
 	ready, err := pg.Wait(1)

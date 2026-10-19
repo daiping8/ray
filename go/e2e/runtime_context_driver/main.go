@@ -38,6 +38,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -70,6 +71,21 @@ func initRay() error {
 	}
 	log.Printf("driver code search path: %s", codeSearchPath)
 	return nil
+}
+
+// e2eTimeout scales a base deadline by RAY_GO_E2E_TIMEOUT_SCALE (default 1.0,
+// floor 1.0): shared clusters export a larger value (e.g. 3) instead of
+// editing per-driver deadline constants when waits flake under load.
+func e2eTimeout(base time.Duration) time.Duration {
+	s := os.Getenv("RAY_GO_E2E_TIMEOUT_SCALE")
+	if s == "" {
+		return base
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < 1.0 {
+		return base
+	}
+	return time.Duration(float64(base) * f)
 }
 
 // mustNotNilID fails the run when an expected non-nil ID is nil.
@@ -190,6 +206,7 @@ func testActorContext() error {
 	if handle == nil || handle.ID().IsNil() {
 		return fmt.Errorf("expected a non-nil actor handle")
 	}
+	defer func() { _ = api.KillActor(handle, true) }()
 
 	typed := api.NewActorHandleImpl[map[string]string](handle.ID())
 	ref, err := typed.Task((*userfuncs.RuntimeContextProbe).Probe).Remote()
@@ -273,6 +290,7 @@ func testActorInfoListing() error {
 	if err != nil {
 		return fmt.Errorf("create Counter actor failed: %w", err)
 	}
+	defer func() { _ = api.KillActor(counter, true) }()
 	counterID := counter.ID()
 
 	ctx, err := api.GetRuntimeContext()
@@ -287,7 +305,7 @@ func testActorInfoListing() error {
 	// (not just the unfiltered list) so the listing below observes an actor
 	// that is both registered AND alive, mirroring how a real client waits for
 	// its actor to become available before querying cluster state.
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(e2eTimeout(10 * time.Second))
 	for {
 		if listed(counterID, ctx.GetAllActorInfoByFilter(ctx.JobID(), api.ActorStateAlive)) {
 			break
@@ -320,11 +338,6 @@ func testActorInfoListing() error {
 	}
 	fmt.Println("  GetAllActorInfoByFilter(job, Dead) excludes live actor ✓")
 
-	// Release the actor so the worker can be recycled.
-	typed := api.NewActorHandleImpl[struct{}](counterID)
-	if _, err := typed.Task((*userfuncs.Counter).Exit).Remote(); err != nil {
-		return fmt.Errorf("submit Exit for cleanup failed: %w", err)
-	}
 	return nil
 }
 

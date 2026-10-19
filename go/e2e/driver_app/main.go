@@ -52,8 +52,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/ray-project/ray/go/pkg/ids"
@@ -94,6 +96,21 @@ func getWithTimeout[T any](ref *api.ObjectRef[T], budget time.Duration) (T, erro
 	}
 }
 
+// e2eTimeout scales a base deadline by RAY_GO_E2E_TIMEOUT_SCALE (default 1.0,
+// floor 1.0): shared clusters export a larger value (e.g. 3) instead of
+// editing per-driver deadline constants when waits flake under load.
+func e2eTimeout(base time.Duration) time.Duration {
+	s := os.Getenv("RAY_GO_E2E_TIMEOUT_SCALE")
+	if s == "" {
+		return base
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < 1.0 {
+		return base
+	}
+	return time.Duration(float64(base) * f)
+}
+
 // ============================================================================
 // Application configuration
 // ============================================================================
@@ -108,15 +125,7 @@ const (
 	RunModeLocal
 )
 
-var (
-	runModeFlag      = flag.String("run-mode", "driver", "Run mode: driver or local")
-	gcsAddressFlag   = flag.String("gcs-address", "", "GCS address (host:port)")
-	nodeIPFlag       = flag.String("node-ip", "127.0.0.1", "Node IP address")
-	nodeManagerPort  = flag.Int("node-manager-port", 0, "Node manager port (from raylet)")
-	storeSocketFlag  = flag.String("store-socket", "", "Plasma store socket path")
-	rayletSocketFlag = flag.String("raylet-socket", "", "Raylet socket path")
-	logDirFlag       = flag.String("log-dir", "", "Log directory")
-)
+var runModeFlag = flag.String("run-mode", "driver", "Run mode: driver or local")
 
 func parseRunMode(s string) (RunMode, error) {
 	switch s {
@@ -285,7 +294,6 @@ func runDriver() {
 	}
 
 	fmt.Println("\n✅ All tasks completed successfully!")
-	fmt.Println("[DEBUG] driver_app: about to call api.Shutdown()")
 }
 
 // runLocal runs in local mode without a Ray cluster.
@@ -798,6 +806,7 @@ func demonstrateKillActor() error {
 	if err != nil {
 		return fmt.Errorf("create kill actor failed: %w", err)
 	}
+	defer func() { _ = api.KillActor(handle, true) }()
 	typed := api.NewActorHandleImpl[int](handle.ID())
 
 	// Confirm the actor is alive and callable before killing.
@@ -818,7 +827,7 @@ func demonstrateKillActor() error {
 	// CoreWorker::KillActor is asynchronous (GCS -> raylet -> worker SIGKILL),
 	// so poll a method call until the worker has died and the call fails,
 	// proving both the kill and the no-restart semantics.
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(e2eTimeout(5 * time.Second))
 	for {
 		ref, err = typed.Task((*userfuncs.Counter).Value).Remote()
 		if err == nil {
@@ -1023,6 +1032,7 @@ func demonstrateGetActorHandle() error {
 	if err != nil {
 		return fmt.Errorf("failed to create Counter actor: %w", err)
 	}
+	defer func() { _ = api.KillActor(created, true) }()
 	actorID := created.ID()
 	fmt.Printf("  Created Counter actor: %s\n", actorID.Hex())
 

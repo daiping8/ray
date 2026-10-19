@@ -408,12 +408,14 @@ func testActorStateFilter() error {
 	if err != nil {
 		return fmt.Errorf("create alive actor failed: %w", err)
 	}
+	defer func() { _ = api.KillActor(aliveHandle, true) }()
 	aliveID := aliveHandle.ID()
 
 	deadHandle, err := api.Actor[*userfuncs.Counter]((*userfuncs.Counter)(nil)).Create(20)
 	if err != nil {
 		return fmt.Errorf("create doomed actor failed: %w", err)
 	}
+	defer func() { _ = api.KillActor(deadHandle, true) }()
 	deadID := deadHandle.ID()
 
 	// Kill the second actor with noRestart=true so it transitions to DEAD and

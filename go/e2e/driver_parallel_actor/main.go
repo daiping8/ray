@@ -95,6 +95,7 @@ func testParallelActorInstanceIsolation() error {
 	if handle == nil {
 		return fmt.Errorf("expected a non-nil parallel actor handle")
 	}
+	defer func() { _ = api.KillActor(handle.GetHandle(), true) }()
 	if handle.GetParallelism() != parallelism {
 		return fmt.Errorf("GetParallelism() = %d, want %d", handle.GetParallelism(), parallelism)
 	}
@@ -198,6 +199,7 @@ func testParallelActorParallelism() error {
 	if err != nil {
 		return fmt.Errorf("create parallel actor failed: %w", err)
 	}
+	defer func() { _ = api.KillActor(handle.GetHandle(), true) }()
 
 	// Inter-instance parallelism: submit one Sleep to each instance without
 	// waiting, then collect all results. Parallel -> ~2s; wrongly serialized

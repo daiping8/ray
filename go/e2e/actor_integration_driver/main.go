@@ -56,8 +56,10 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/ray-project/ray/go/e2e/userfuncs"
@@ -94,6 +96,21 @@ func getWithTimeout[T any](ref *api.ObjectRef[T], budget time.Duration) (T, erro
 		var zero T
 		return zero, errGetTimeout
 	}
+}
+
+// e2eTimeout scales a base deadline by RAY_GO_E2E_TIMEOUT_SCALE (default 1.0,
+// floor 1.0): shared clusters export a larger value (e.g. 3) instead of
+// editing per-driver deadline constants when waits flake under load.
+func e2eTimeout(base time.Duration) time.Duration {
+	s := os.Getenv("RAY_GO_E2E_TIMEOUT_SCALE")
+	if s == "" {
+		return base
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < 1.0 {
+		return base
+	}
+	return time.Duration(float64(base) * f)
 }
 
 // initRay initializes the Ray runtime with a JobConfig that carries the
@@ -155,6 +172,7 @@ func testActorLifecycle() error {
 	if handle == nil || handle.ID().IsNil() {
 		return fmt.Errorf("expected a non-nil actor handle")
 	}
+	defer func() { _ = releaseActor(handle.ID()) }()
 
 	// Re-wrap the handle so actor methods returning int are typed correctly:
 	// ActorHandleImpl[T] uses T as the method return type.
@@ -203,9 +221,6 @@ func testActorLifecycle() error {
 	}
 	fmt.Println("  Counter.Value() -> 12 ✓")
 
-	if err := releaseActor(handle.ID()); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -217,10 +232,12 @@ func testActorIsolation() error {
 	if err != nil {
 		return fmt.Errorf("create actor 1 failed: %w", err)
 	}
+	defer func() { _ = releaseActor(h1.ID()) }()
 	h2, err := api.Actor[*userfuncs.Counter]((*userfuncs.Counter)(nil)).Create(100)
 	if err != nil {
 		return fmt.Errorf("create actor 2 failed: %w", err)
 	}
+	defer func() { _ = releaseActor(h2.ID()) }()
 
 	t1 := api.NewActorHandleImpl[int](h1.ID())
 	t2 := api.NewActorHandleImpl[int](h2.ID())
@@ -255,12 +272,6 @@ func testActorIsolation() error {
 	}
 	fmt.Println("  Counter1.Value() -> 1, Counter2.Value() -> 101 ✓ (isolated)")
 
-	if err := releaseActor(h1.ID()); err != nil {
-		return err
-	}
-	if err := releaseActor(h2.ID()); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -271,6 +282,7 @@ func testActorVoid() error {
 	if err != nil {
 		return fmt.Errorf("create void actor failed: %w", err)
 	}
+	defer func() { _ = releaseActor(handle.ID()) }()
 	typed := api.NewActorHandleImpl[struct{}](handle.ID())
 
 	ref, err := typed.Task((*userfuncs.Counter).Void).Remote()
@@ -284,9 +296,6 @@ func testActorVoid() error {
 		return fmt.Errorf("void RemoteVoid failed: %w", err)
 	}
 	fmt.Println("  Counter.Void() Remote()=(nil,nil), RemoteVoid() ok ✓")
-	if err := releaseActor(handle.ID()); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -297,6 +306,7 @@ func testActorMultiReturn() error {
 	if err != nil {
 		return fmt.Errorf("create multi-return actor failed: %w", err)
 	}
+	defer func() { _ = releaseActor(handle.ID()) }()
 	typed := api.NewActorHandleImpl[int](handle.ID())
 
 	ref, err := typed.Task((*userfuncs.Counter).Pair).WithNumReturns(2).Remote()
@@ -311,9 +321,6 @@ func testActorMultiReturn() error {
 		return fmt.Errorf("Counter.Pair() first = %d, want 21", v)
 	}
 	fmt.Println("  Counter.Pair() first return -> 21 ✓ (numReturns=2)")
-	if err := releaseActor(handle.ID()); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -325,6 +332,7 @@ func testActorTaskWithName() error {
 	if err != nil {
 		return fmt.Errorf("create named-task actor failed: %w", err)
 	}
+	defer func() { _ = releaseActor(handle.ID()) }()
 	typed := api.NewActorHandleImpl[int](handle.ID())
 
 	ref, err := typed.Task((*userfuncs.Counter).Add, 7).WithName("counter-add-7").Remote()
@@ -339,9 +347,6 @@ func testActorTaskWithName() error {
 		return fmt.Errorf("named Add(7) = %d, want 7", v)
 	}
 	fmt.Println("  Counter.Add(7) with name -> 7 ✓ (task name propagated)")
-	if err := releaseActor(handle.ID()); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -356,6 +361,7 @@ func testActorSystemConcurrencyGroup() error {
 	if err != nil {
 		return fmt.Errorf("create concurrency-group actor failed: %w", err)
 	}
+	defer func() { _ = releaseActor(handle.ID()) }()
 	typed := api.NewActorHandleImpl[int](handle.ID())
 
 	// "_ray_system" is the C++ system concurrency group default
@@ -375,9 +381,6 @@ func testActorSystemConcurrencyGroup() error {
 		return fmt.Errorf("concurrency-group Add(4) = %d, want 7 (3+4)", v)
 	}
 	fmt.Println("  Counter.Add(4) via _ray_system group -> 7 ✓ (concurrency group routed)")
-	if err := releaseActor(handle.ID()); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -400,6 +403,7 @@ func testActorDeclaredConcurrencyGroup() error {
 	if err != nil {
 		return fmt.Errorf("create declared-group actor failed: %w", err)
 	}
+	defer func() { _ = releaseActor(handle.ID()) }()
 	typed := api.NewActorHandleImpl[int](handle.ID())
 
 	ref, err := typed.Task((*userfuncs.Counter).Add, 5).
@@ -431,9 +435,6 @@ func testActorDeclaredConcurrencyGroup() error {
 	}
 	fmt.Println("  default-group Value() -> 15 ✓ (ungrouped method still runs)")
 
-	if err := releaseActor(handle.ID()); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -453,6 +454,7 @@ func testActorNamedAndReusable() error {
 	if handle == nil || handle.ID().IsNil() {
 		return fmt.Errorf("expected a non-nil handle for named actor")
 	}
+	defer func() { _ = releaseActor(handle.ID()) }()
 
 	// Bump the actor so it holds state, then re-resolve it by name.
 	typed := api.NewActorHandleImpl[int](handle.ID())
@@ -477,9 +479,6 @@ func testActorNamedAndReusable() error {
 		return fmt.Errorf("named actor Value = %d, want 105 (100+5, state persisted across handles)", v)
 	}
 	fmt.Println("  named actor Add(5) then GetActor().Value() -> 105 ✓ (handle reusable)")
-	if err := releaseActor(handle.ID()); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -490,6 +489,7 @@ func testActorExit() error {
 	if err != nil {
 		return fmt.Errorf("create exit actor failed: %w", err)
 	}
+	defer func() { _ = releaseActor(handle.ID()) }()
 	typed := api.NewActorHandleImpl[struct{}](handle.ID())
 
 	// Submit the exit call; do not Get() it (the worker exits, so no return
@@ -503,6 +503,7 @@ func testActorExit() error {
 	if err != nil {
 		return fmt.Errorf("create post-exit actor failed: %w", err)
 	}
+	defer func() { _ = releaseActor(handle2.ID()) }()
 	t2 := api.NewActorHandleImpl[int](handle2.ID())
 	ref, err := t2.Task((*userfuncs.Counter).Value).Remote()
 	if err != nil {
@@ -512,7 +513,7 @@ func testActorExit() error {
 		return fmt.Errorf("post-exit actor Value = %v (err %v), want 1", v, err)
 	}
 	fmt.Println("  Counter.Exit() submitted, worker exits intentionally ✓")
-	return releaseActor(handle2.ID())
+	return nil
 }
 
 // testActorCreationOptions verifies the actor creation options aligned with
@@ -564,7 +565,7 @@ func testActorCreationOptions() error {
 	// testActorInfoListing in runtime_context_driver). The OSS api.ActorInfo
 	// surface (RuntimeContext.GetAllActorInfo) does not carry IsDetached, so
 	// the contract runtime is queried through api.Internal(), which retains it.
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(e2eTimeout(10 * time.Second))
 	detachedFound := false
 	for {
 		for _, a := range api.Internal().Runtime().GetAllActorInfo() {
@@ -605,6 +606,7 @@ func testActorHandleKill() error {
 	if err != nil {
 		return fmt.Errorf("create kill-norestart actor failed: %w", err)
 	}
+	defer func() { _ = releaseActor(handle.ID()) }()
 	typed := api.NewActorHandleImpl[int](handle.ID())
 
 	if err := handle.KillWithNoRestart(); err != nil {
@@ -614,7 +616,7 @@ func testActorHandleKill() error {
 	// CoreWorker::KillActor is asynchronous (GCS -> raylet -> worker SIGKILL);
 	// poll until a method call fails, proving both the kill and no-restart
 	// semantics (a call succeeding while the worker is still dying is fine).
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(e2eTimeout(5 * time.Second))
 	confirmedDead := false
 	for {
 		ref, err := typed.Task((*userfuncs.Counter).Value).Remote()
@@ -643,6 +645,7 @@ func testActorHandleKill() error {
 	if err != nil {
 		return fmt.Errorf("create restartable actor failed: %w", err)
 	}
+	defer func() { _ = releaseActor(restartable.ID()) }()
 	rtTyped := api.NewActorHandleImpl[int](restartable.ID())
 
 	if err := restartable.Kill(); err != nil {
@@ -654,7 +657,7 @@ func testActorHandleKill() error {
 	// dying worker and false-positive the revival check below (the old
 	// instance would answer Value()==100 before it dies, "proving" a restart
 	// that never happened).
-	goneDeadline := time.Now().Add(10 * time.Second)
+	goneDeadline := time.Now().Add(e2eTimeout(10 * time.Second))
 	for {
 		ref, err := rtTyped.Task((*userfuncs.Counter).Value).Remote()
 		if err == nil {
@@ -672,7 +675,7 @@ func testActorHandleKill() error {
 	// Poll until the actor comes back (restarted) and serves calls again. The
 	// restart is asynchronous; a short window of submission failures is
 	// expected while the old worker dies and the new one is leased.
-	restartDeadline := time.Now().Add(15 * time.Second)
+	restartDeadline := time.Now().Add(e2eTimeout(15 * time.Second))
 	restarted := false
 	for {
 		ref, err := rtTyped.Task((*userfuncs.Counter).Value).Remote()
@@ -693,9 +696,6 @@ func testActorHandleKill() error {
 	}
 	fmt.Println("  handle.Kill() (noRestart=false) with maxRestarts=1: actor restarted, Value() -> 100 ✓")
 
-	if err := releaseActor(restartable.ID()); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -707,6 +707,7 @@ func testActorKill() error {
 	if err != nil {
 		return fmt.Errorf("create kill actor failed: %w", err)
 	}
+	defer func() { _ = releaseActor(handle.ID()) }()
 	typed := api.NewActorHandleImpl[int](handle.ID())
 
 	// Confirm the actor is alive and callable before killing.
@@ -728,7 +729,7 @@ func testActorKill() error {
 	// died and the call fails, proving both the kill and the no-restart
 	// semantics. A method call succeeding while the worker is still alive is
 	// not a failure; the poll only fails if no call ever fails.
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(e2eTimeout(5 * time.Second))
 	for {
 		ref, err = typed.Task((*userfuncs.Counter).Value).Remote()
 		if err == nil {

@@ -40,7 +40,9 @@ package main
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/ray-project/ray/go/pkg/log"
@@ -77,6 +79,21 @@ func getWithTimeout[T any](ref *api.ObjectRef[T], budget time.Duration) (T, erro
 		var zero T
 		return zero, errGetTimeout
 	}
+}
+
+// e2eTimeout scales a base deadline by RAY_GO_E2E_TIMEOUT_SCALE (default 1.0,
+// floor 1.0): shared clusters export a larger value (e.g. 3) instead of
+// editing per-driver deadline constants when waits flake under load.
+func e2eTimeout(base time.Duration) time.Duration {
+	s := os.Getenv("RAY_GO_E2E_TIMEOUT_SCALE")
+	if s == "" {
+		return base
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < 1.0 {
+		return base
+	}
+	return time.Duration(float64(base) * f)
 }
 
 // Student mirrors the C++ Student struct (name, age) registered in
@@ -323,6 +340,7 @@ func testActor() error {
 	if err != nil {
 		return fmt.Errorf("create Calculator actor failed: %w", err)
 	}
+	defer func() { _ = api.KillActor(handle, true) }()
 	if handle.ID().IsNil() {
 		return fmt.Errorf("Calculator actor handle ID is nil")
 	}
@@ -364,7 +382,7 @@ func testActor() error {
 	// CoreWorker::KillActor is asynchronous (GCS -> raylet -> worker SIGKILL),
 	// so poll until a method call fails, proving both the kill and no-restart
 	// semantics. A call succeeding while the worker is still dying is fine.
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(e2eTimeout(5 * time.Second))
 	confirmedDead := false
 	for {
 		deadRef, err := api.CppActorTask[int](handle, "get_value").Remote()
@@ -409,6 +427,7 @@ func testActorConcurrencyGroup() error {
 	if err != nil {
 		return fmt.Errorf("create Calculator actor with concurrency group failed: %w", err)
 	}
+	defer func() { _ = api.KillActor(handle, true) }()
 	fmt.Printf("P2 created Calculator actor with group cg_sleep (MaxCalls=1)\n")
 
 	// 2. Route two sleeping calls into the group by name and submit them
