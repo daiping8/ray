@@ -15,12 +15,12 @@ e2e/
 ├── driver_parallel_actor/      # Parallel Actor concurrency-group model: instance routing / isolation / state retention
 ├── driver_call_python/         # Go -> Python cross-language calls
 ├── driver_call_cpp/            # Go -> C++ cross-language calls
-├── driver_placement_group/     # Placement Group user API (spec 4.1/4.2/3.1): lifecycle / placement / validation + local mode
-├── driver_gcs_client/          # User-side GCSClient extension (spec 12.1/12.6): PG queries x3 / KV / Node / Actor
-├── driver_metrics/             # User Metrics API (spec 13.1): Count/Gauge/Sum/Histogram
-├── runtime_context_driver/     # RuntimeContext and resource-ID API (spec 6.1 / 8.1)
-├── global_state_accessor_driver/  # GlobalStateAccessor production implementation + actor-state filter pushdown (spec 12.3 / 12.5)
-├── runtime_env_driver/         # User-side RuntimeEnv API + Autoscaler status-report loop (spec 7.1 / 12.4)
+├── driver_placement_group/     # Placement Group user API: lifecycle / placement / validation + local mode
+├── driver_gcs_client/          # User-side GCSClient extension: PG queries x3 / KV / Node / Actor
+├── driver_metrics/             # User Metrics API: Count/Gauge/Sum/Histogram
+├── runtime_context_driver/     # RuntimeContext and resource-ID API
+├── global_state_accessor_driver/  # GlobalStateAccessor production implementation + actor-state filter pushdown
+├── runtime_env_driver/         # User-side RuntimeEnv API + Autoscaler status-report loop
 ├── zero_copy_benchmark/        # Zero-copy Get performance benchmark (local / cross, 4MB / 64MB)
 ├── userfuncs/                  # Shared user-function package (used by the Go-task/actor drivers)
 │   ├── BUILD.bazel
@@ -61,16 +61,16 @@ cd job_dir && ray job submit --working-dir . -- ./driver_app
 | Driver | Build target | What it verifies |
 |---|---|---|
 | `driver_app` | `//go/e2e/driver_app` | Remote task submission, Free API, GetActorHandle; supports `--run-mode=local` local mode |
-| `actor_integration_driver` | `//go/e2e/actor_integration_driver` | Actor lifecycle, instance isolation, void/multiple returns, named tasks, concurrency groups (`_ray_system` and `ActorCreator.WithConcurrencyGroups` declared group `cg_go_add` downlink + task-level routing), Exit/Kill, creation options (lifetime/async/maxPendingCalls, spec 2.1), handle.kill instance method (spec 2.3) |
+| `actor_integration_driver` | `//go/e2e/actor_integration_driver` | Actor lifecycle, instance isolation, void/multiple returns, named tasks, concurrency groups (`_ray_system` and `ActorCreator.WithConcurrencyGroups` declared group `cg_go_add` downlink + task-level routing), Exit/Kill, creation options (lifetime/async/maxPendingCalls), handle.kill instance method |
 | `driver_parallel_actor` | `//go/e2e/driver_parallel_actor` | Parallel Actor concurrency-group model (aligned with Java `io.ray.api.parallelactor`): `NewParallelActor` creates N PARALLEL_INSTANCE_&lt;i&gt; concurrency groups, `GetInstance(i).Task(...).Remote()` instance routing, inter-instance state isolation, intra-instance state retention, and the inter-instance parallel / intra-instance serial concurrency semantics |
 | `driver_call_python` | `//go/e2e/driver_call_python` | Go->Python cross-language function calls and actors (needs `test_go_call_python.py` in the same directory) |
-| `driver_call_cpp` | `//go/e2e/driver_call_cpp` | Go->C++ cross-language calls (spec 10.2/10.5): RemoteCpp/RemoteCppVoid/cross-language types (including struct)/C++ Actor + CppFunctionDescriptor (the C++ Worker must register the corresponding functions/Actor; see `driver_call_cpp/README.md`) |
-| `runtime_context_driver` | `//go/e2e/runtime_context_driver` | Full RuntimeContext API and GetAvailableResourceIds/GetGpuIds (spec 6.1/8.1) |
-| `global_state_accessor_driver` | `//go/e2e/global_state_accessor_driver` | GlobalStateAccessor production-implementation queries + actor list filtered by state (ALIVE/DEAD) pushed down (spec 12.3/12.5) |
-| `runtime_env_driver` | `//go/e2e/runtime_env_driver` | Full user-side RuntimeEnv API flow + submission via WithRuntimeEnv verified to take effect in the worker (spec 7.1) + Autoscaler status-report loop ReportAutoscalingState->GetAutoscalerStatus (spec 12.4) |
-| `driver_placement_group` | `//go/e2e/driver_placement_group` | Placement Group user API (spec 4.1/4.2/3.1): lifecycle (create/wait/get/getByName/getAll/remove, state migrates to Removed after removal), tasks/Actor bound to bundles via `WithPlacementGroup` (the call.go main downlink path), option validation; `--run-mode=local` covers local change simulation and not-supported queries (AC8) |
-| `driver_gcs_client` | `//go/e2e/driver_gcs_client` | User-side GCSClient extension (spec 12.1/12.6): `GetGCSClient()` + PG queries x3 (including by-name and REMOVED after removal) + InternalKV write/read-back round trip + Node/Actor queries (including ALIVE state filtering); local mode returns not-supported |
-| `driver_metrics` | `//go/e2e/driver_metrics` | User Metrics API (spec 13.1): RegisterTagKey + Count/Gauge/Sum/Histogram register/Record/Unregister + handle rejection after unregister; local mode returns not-supported (AC14) |
+| `driver_call_cpp` | `//go/e2e/driver_call_cpp` | Go->C++ cross-language calls: RemoteCpp/RemoteCppVoid/cross-language types (including struct)/C++ Actor + CppFunctionDescriptor (the C++ Worker must register the corresponding functions/Actor; see `driver_call_cpp/README.md`) |
+| `runtime_context_driver` | `//go/e2e/runtime_context_driver` | Full RuntimeContext API and GetAvailableResourceIds/GetGpuIds |
+| `global_state_accessor_driver` | `//go/e2e/global_state_accessor_driver` | GlobalStateAccessor production-implementation queries + actor list filtered by state (ALIVE/DEAD) pushed down |
+| `runtime_env_driver` | `//go/e2e/runtime_env_driver` | Full user-side RuntimeEnv API flow + submission via WithRuntimeEnv verified to take effect in the worker + Autoscaler status-report loop ReportAutoscalingState->GetAutoscalerStatus |
+| `driver_placement_group` | `//go/e2e/driver_placement_group` | Placement Group user API: lifecycle (create/wait/get/getByName/getAll/remove, state migrates to Removed after removal), tasks/Actor bound to bundles via `WithPlacementGroup` (the call.go main downlink path), option validation; `--run-mode=local` covers local change simulation and not-found queries |
+| `driver_gcs_client` | `//go/e2e/driver_gcs_client` | User-side GCSClient extension: `GetGCSClient()` + PG queries x3 (including by-name and REMOVED after removal) + InternalKV write/read-back round trip + Node/Actor queries (including ALIVE state filtering); local mode returns not-supported |
+| `driver_metrics` | `//go/e2e/driver_metrics` | User Metrics API: RegisterTagKey + Count/Gauge/Sum/Histogram register/Record/Unregister + handle rejection after unregister; local mode returns not-supported |
 | `zero_copy_benchmark` | `//go/e2e/zero_copy_benchmark` | Cross-process zero-copy Get performance benchmark (local/cross, 4MB/64MB) |
 
 ## userfuncs shared function package
@@ -99,8 +99,8 @@ step (keep the plugin and the runtime built from the same tree).
 3. The `userfuncs.so` plugin must use an absolute path (`code_search_path`),
    otherwise the worker-side `os.Stat` fails and the functions are not
    registered.
-4. `runtime_env_driver` depends on newer runtime capabilities (RuntimeEnv API
-   7.1 / Autoscaler report 12.4); site-packages must have the latest
+4. `runtime_env_driver` depends on newer runtime capabilities (the RuntimeEnv
+   API and the autoscaler status report); site-packages must have the latest
    `ray/go/lib/go_runtime.so` and `ray/go/cmd/raygo` synced (`bazel run
    //go:gen_ray_go_pkg` then sync), otherwise the plugin version mismatch or a
    missing method causes a runtime failure.

@@ -1,17 +1,16 @@
 # driver_call_cpp — Go -> C++ cross-language E2E
 
-Verifies spec items **10.2 Go -> C++ calls** and **10.5 C++ function
-descriptor** from the Go-runtime-vs-Java/C++ gap-comparison design document.
+Verifies **Go -> C++ calls** and the **C++ function descriptor** surface.
 
 ## Coverage
 
 | Case | Coverage |
 |---|---|
-| `testCppFunctionDescriptor` | 10.5: `CppFunctionDescriptor` construction, `FunctionDescriptorFromListWithLanguage(LanguageCpp, ...)` parsing, `ToList()` 3-element `[functionName, caller, className]`, `GetLanguage()`, `Hash()` stability, invalid-input rejection |
-| `testAdd` | 10.2: `RemoteCpp[int]("add", "")` + `Call(10, 20)` -> 30 |
-| `testVoid` | 10.2: `RemoteCppVoid("log_event", "")` returns no value, `ObjectRef == nil` |
-| `testCrossLanguageTypes` | 10.2: string / int slice / string->int map / fully-exported struct cross-language round trip |
-| `testActor` | 10.2: `RemoteCppActor("create_actor", "Calculator")` creates a C++ Actor, `CppActorTask[int](handle, "add", ...)` method call with state accumulation, call fails after `KillWithNoRestart()` (confirmed by polling) |
+| `testCppFunctionDescriptor` | `CppFunctionDescriptor` construction, `FunctionDescriptorFromListWithLanguage(LanguageCpp, ...)` parsing, `ToList()` 3-element `[functionName, caller, className]`, `GetLanguage()`, `Hash()` stability, invalid-input rejection |
+| `testAdd` | `RemoteCpp[int]("add", "")` + `Call(10, 20)` -> 30 |
+| `testVoid` | `RemoteCppVoid("log_event", "")` returns no value, `ObjectRef == nil` |
+| `testCrossLanguageTypes` | string / int slice / string->int map / fully-exported struct cross-language round trip |
+| `testActor` | `RemoteCppActor("create_actor", "Calculator")` creates a C++ Actor, `CppActorTask[int](handle, "add", ...)` method call with state accumulation, call fails after `KillWithNoRestart()` (confirmed by polling) |
 
 ## How it works
 

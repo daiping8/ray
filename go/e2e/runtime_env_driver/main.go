@@ -14,7 +14,7 @@
 
 // runtime_env_driver is a Ray Go driver that verifies the user-facing RuntimeEnv
 // API and the autoscaler state report path end to end on a real cluster. It
-// exercises the surfaces covered by the Go/Java/C++ gap-comparison analysis:
+// exercises the surfaces where the Go API previously trailed Java and C++:
 //
 //	User-facing RuntimeEnv API: was missing — users could only hand-write a
 //	    runtime_env JSON string. This driver exercises the full value-object
@@ -107,15 +107,15 @@ func unmarshalJSON(s string) (map[string]interface{}, error) {
 	return m, nil
 }
 
-// testRuntimeEnvAPI verifies item 7.1's user-facing value-object API in the
+// testRuntimeEnvAPI verifies the user-facing value-object API in the
 // driver process: construction via the internal() thin layer (which needs an
 // initialized runtime), field-level Set/SetJSON/Get/GetJSON/Contains/Remove/
 // IsEmpty, config Set/Get, Serialize output (including the "config" key), the
 // Serialize -> NewRuntimeEnvFromJSON round trip, and SerializeToRuntimeEnvInfo
 // (protojson, lowerCamelCase).
 func testRuntimeEnvAPI() error {
-	// AC1: NewRuntimeEnv returns an empty env (runtime is initialized in cluster
-	// mode, so internal() resolves to the native runtime).
+	// NewRuntimeEnv returns an empty env (runtime is initialized in cluster mode,
+	// so internal() resolves to the native runtime).
 	env, err := api.NewRuntimeEnv()
 	if err != nil {
 		return fmt.Errorf("NewRuntimeEnv failed: %w", err)
@@ -125,7 +125,7 @@ func testRuntimeEnvAPI() error {
 	}
 	fmt.Println("  NewRuntimeEnv() -> empty env ✓")
 
-	// AC3: Set/Get/Contains/IsEmpty on a field.
+	// Set/Get/Contains/IsEmpty on a field.
 	if err := env.Set("working_dir", "/tmp/x"); err != nil {
 		return fmt.Errorf("Set(working_dir) failed: %w", err)
 	}
@@ -171,8 +171,7 @@ func testRuntimeEnvAPI() error {
 	}
 	fmt.Println("  Remove ✓")
 
-	// AC3 (config): SetConfig writes the config under the "config" key;
-	// GetConfig reads it back.
+	// SetConfig writes the config under the "config" key; GetConfig reads it back.
 	cfg := &api.RuntimeEnvConfig{
 		SetupTimeoutSeconds: 600,
 		EagerInstall:        true,
@@ -191,7 +190,7 @@ func testRuntimeEnvAPI() error {
 	}
 	fmt.Println("  SetConfig/GetConfig round trip ✓")
 
-	// AC4: Serialize() outputs the full fields map including the "config" key,
+	// Serialize() outputs the full fields map including the "config" key,
 	// directly consumable by WithRuntimeEnv (worker-side extractConfigField
 	// reads FieldConfig="config").
 	serialized, err := env.Serialize()
@@ -217,7 +216,7 @@ func testRuntimeEnvAPI() error {
 	}
 	fmt.Printf("  Serialize() = %s ✓ (contains fields + config key)\n", serialized)
 
-	// AC6: Serialize -> NewRuntimeEnvFromJSON round trip.
+	// Serialize -> NewRuntimeEnvFromJSON round trip.
 	env2, err := api.NewRuntimeEnvFromJSON(serialized)
 	if err != nil {
 		return fmt.Errorf("NewRuntimeEnvFromJSON failed: %w", err)
@@ -231,7 +230,7 @@ func testRuntimeEnvAPI() error {
 	}
 	fmt.Println("  NewRuntimeEnvFromJSON round trip ✓")
 
-	// AC5: SerializeToRuntimeEnvInfo outputs protojson with lowerCamelCase
+	// SerializeToRuntimeEnvInfo outputs protojson with lowerCamelCase
 	// fields serializedRuntimeEnv + runtimeEnvConfig.
 	infoJSON, err := env.SerializeToRuntimeEnvInfo()
 	if err != nil {
@@ -252,7 +251,7 @@ func testRuntimeEnvAPI() error {
 	}
 	fmt.Printf("  SerializeToRuntimeEnvInfo() = %s ✓\n", infoJSON)
 
-	// AC3 (config type check): Set("config", non-config) must be rejected.
+	// Set("config", non-config) must be rejected (type check).
 	if err := env.Set("config", "not-a-config"); err == nil {
 		return fmt.Errorf("Set(config, string) should error")
 	}
@@ -312,7 +311,7 @@ func testRuntimeEnvAPI() error {
 	}
 	fmt.Println("  SetJSON(invalid JSON) rejected ✓")
 
-	fmt.Println("  RuntimeEnv value-object API verified ✓ (7.1)")
+	fmt.Println("  RuntimeEnv value-object API verified ✓")
 	return nil
 }
 
@@ -321,7 +320,7 @@ func testRuntimeEnvAPI() error {
 // actor method reads RuntimeContext.RuntimeEnv() and the driver asserts the
 // returned JSON contains the submitted fields and the "config" key (so
 // worker-side extractConfigField can parse the config). This exercises the full
-// 7.1 submission path: api.RuntimeEnv -> SerializeToRuntimeEnvInfo (the
+// submission path: api.RuntimeEnv -> SerializeToRuntimeEnvInfo (the
 // RuntimeEnvInfo JSON that Java CallOptions/ActorCreationOptions also submit,
 // CallOptions.java:24) -> WithRuntimeEnv -> native submitter
 // (native_submitter.go:341/382) -> C++ OverrideTaskOrActorRuntimeEnvInfo
@@ -412,12 +411,12 @@ func testRuntimeEnvSubmit() error {
 	if _, err := typed.Task((*userfuncs.RuntimeEnvProbe).Exit).Remote(); err != nil {
 		return fmt.Errorf("submit RuntimeEnvProbe.Exit for cleanup failed: %w", err)
 	}
-	fmt.Println("  RuntimeEnv submission verified ✓ (7.1 AC4)")
+	fmt.Println("  RuntimeEnv submission verified ✓")
 	return nil
 }
 
-// testRuntimeEnvTaskSubmit verifies the task-level runtime env submission path
-// (spec 7.1): CallOptions.WithRuntimeEnv routes through the SubmitTask path
+// testRuntimeEnvTaskSubmit verifies the task-level runtime env submission path:
+// CallOptions.WithRuntimeEnv routes through the SubmitTask path
 // (go/internal/runtime/cgo/native_submitter.go:341), in contrast to the actor
 // creation path exercised by testRuntimeEnvSubmit (native_submitter.go:382).
 // A remote task worker reads RuntimeContext.RuntimeEnv() and the driver asserts
@@ -467,11 +466,11 @@ func testRuntimeEnvTaskSubmit() error {
 		return fmt.Errorf("task worker runtime env missing config key: %s", workerEnv)
 	}
 	fmt.Printf("  task worker received runtime env with env_vars + config ✓: %s\n", workerEnv)
-	fmt.Println("  Task-level runtime env submission verified ✓ (7.1 CallOptions path)")
+	fmt.Println("  Task-level runtime env submission verified ✓ (CallOptions path)")
 	return nil
 }
 
-// testAutoscalerReport verifies item 12.4: the autoscaler state reporting path
+// testAutoscalerReport verifies the autoscaler state reporting path
 // is no longer a placeholder. The GCS client must resolve to a production
 // implementation and ReportAutoscalingState must return nil on a live cluster;
 // afterwards GetAutoscalerStatus still resolves, closing the loop.
@@ -482,7 +481,7 @@ func testAutoscalerReport() error {
 
 	client, err := gcs.GetClient()
 	if err != nil {
-		return fmt.Errorf("gcs.GetClient() returned %v, want a production client (12.4)", err)
+		return fmt.Errorf("gcs.GetClient() returned %v, want a production client", err)
 	}
 	if client == nil {
 		return fmt.Errorf("gcs.GetClient() returned nil client")
@@ -517,7 +516,7 @@ func testAutoscalerReport() error {
 	fmt.Printf("  GetAutoscalerStatus after report resolves ✓ (autoscaling_state present: %v)\n",
 		status.AutoscalingState != nil)
 
-	fmt.Println("  Autoscaler state report verified ✓ (12.4)")
+	fmt.Println("  Autoscaler state report verified ✓")
 	return nil
 }
 

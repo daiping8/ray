@@ -880,12 +880,12 @@ func demonstratePassByRefArg() error {
 // store data deterministically, independent of the local reference count
 // managed by Release()/finalizer.
 //
-// It covers the acceptance criteria that require a live runtime:
-//   - AC2: Put -> Free -> Get must fail (object released, no longer fetchable)
-//   - AC3: precise release - of two objects, freeing one leaves the other readable
-//   - AC6: idempotent - re-Freeing an already-freed object is a no-op (nil error)
-//   - AC4/AC5: empty and all-nil refs are safe no-ops (no panic)
-//   - AC8: both localOnly values are accepted and forwarded to the object store
+// It covers the release behaviors that require a live runtime:
+//   - Put -> Free -> Get must fail (object released, no longer fetchable)
+//   - precise release - of two objects, freeing one leaves the other readable
+//   - idempotent - re-Freeing an already-freed object is a no-op (nil error)
+//   - empty and all-nil refs are safe no-ops (no panic)
+//   - both localOnly values are accepted and forwarded to the object store
 //
 // Get uses a bounded timeout (not the infinite Get) so a freed object can never
 // hang the driver: in local mode the freed object is simply gone ("object not
@@ -903,7 +903,7 @@ func demonstrateFree() error {
 		return nil
 	}
 
-	// Case 1 (AC2): Put -> Free -> Get must fail.
+	// Case 1: Put -> Free -> Get must fail.
 	fmt.Println("\nCase 1: Put -> Free -> Get must fail")
 	ref1, err := api.Put([]byte("free-me-payload"), nil)
 	if err != nil {
@@ -918,7 +918,7 @@ func demonstrateFree() error {
 		return err
 	}
 
-	// Case 2 (AC3): precise release - free one of two, keep the other.
+	// Case 2: Precise release - free one of two, keep the other.
 	fmt.Println("\nCase 2: Precise release - free one of two objects")
 	refA, err := api.Put([]byte("object-A"), nil)
 	if err != nil {
@@ -948,14 +948,14 @@ func demonstrateFree() error {
 	}
 	fmt.Printf("  object-B still readable after Free of object-A: %q ✓\n", string(gotB))
 
-	// Case 3 (AC6): Free is idempotent.
+	// Case 3: Free is idempotent.
 	fmt.Println("\nCase 3: Free idempotency")
 	if err := api.Free([]*api.ObjectRef[[]byte]{refA}, true); err != nil {
 		return fmt.Errorf("second Free of object-A failed: %w", err)
 	}
 	fmt.Println("  Re-Free of already-freed object-A returned nil (idempotent) ✓")
 
-	// Case 4 (AC4/AC5): empty and all-nil refs are safe no-ops.
+	// Case 4: nil and empty refs are safe no-ops.
 	fmt.Println("\nCase 4: nil and empty refs are safe no-ops")
 	if err := api.Free([]*api.ObjectRef[[]byte]{nil, nil}, true); err != nil {
 		return fmt.Errorf("Free with nil refs failed: %w", err)
@@ -976,12 +976,12 @@ func demonstrateFree() error {
 // served from the process-local Go actor registry (createdActorIDSet); in
 // local mode it is served from the in-process actors registry.
 //
-// It covers the acceptance criteria that require a live runtime:
-//   - AC2: GetActorHandle(actorID) returns a non-nil handle whose ID() equals
+// It covers the handle lookups that require a live runtime:
+//   - GetActorHandle(actorID) returns a non-nil handle whose ID() equals
 //     the actor ID, and the handle can drive a Task(...).Remote() call
-//   - AC3: an uncreated actor ID yields a non-nil error (handle not found)
+//   - an uncreated actor ID yields a non-nil error (handle not found)
 func demonstrateGetActorHandle() error {
-	// Case 1 (AC2): create a Counter actor, recover its handle by ID, and call
+	// Case 1: create a Counter actor, recover its handle by ID, and call
 	// a method through the recovered handle.
 	fmt.Println("\nCase 1: recover actor handle by ID and call a method")
 	created, err := api.Actor[*userfuncs.Counter]((*userfuncs.Counter)(nil)).Create(42)
@@ -1021,7 +1021,7 @@ func demonstrateGetActorHandle() error {
 	}
 	fmt.Printf("  Add(8) via recovered handle = %d (expected 50) ✓\n", v)
 
-	// Case 2 (AC3): an actor ID that was never created must not resolve. The ID
+	// Case 2: an actor ID that was never created must not resolve. The ID
 	// must be non-nil (a nil ID is rejected earlier by the invalid-argument
 	// check), so build a well-formed but never-created 16-byte ID.
 	fmt.Println("\nCase 2: uncreated actor ID must not resolve")

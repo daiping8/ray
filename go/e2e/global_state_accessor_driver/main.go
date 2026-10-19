@@ -14,8 +14,8 @@
 
 // global_state_accessor_driver is a Ray Go driver application that verifies the
 // GlobalStateAccessor production implementation and the actor-list state
-// filter end to end on a real cluster. It exercises the surfaces covered by
-// the Go/Java/C++ gap-comparison analysis:
+// filter end to end on a real cluster. It exercises the surfaces where the Go
+// API previously trailed Java and C++:
 //
 //	GlobalStateAccessor implementation: the interface previously had no
 //	    production implementation: gcs.GetGlobalStateAccessor() returned
@@ -231,7 +231,7 @@ func actorStatePollTimeout() (time.Duration, error) {
 	return time.Duration(secs) * time.Second, nil
 }
 
-// testGlobalStateAccessor verifies item 12.3: the GlobalStateAccessor
+// testGlobalStateAccessor verifies the GlobalStateAccessor
 // singleton resolves to a production implementation (not ErrNotImplemented)
 // and representative synchronous queries against GCS return live cluster data.
 func testGlobalStateAccessor() error {
@@ -241,7 +241,7 @@ func testGlobalStateAccessor() error {
 
 	accessor, err := gcs.GetGlobalStateAccessor()
 	if err != nil {
-		return fmt.Errorf("GetGlobalStateAccessor() returned %v, want a production implementation (12.3)", err)
+		return fmt.Errorf("GetGlobalStateAccessor() returned %v, want a production implementation", err)
 	}
 	if accessor == nil {
 		return fmt.Errorf("GetGlobalStateAccessor() returned nil accessor")
@@ -301,13 +301,13 @@ func testGlobalStateAccessor() error {
 	}
 	fmt.Printf("  GetAllWorkerInfo() = %d worker(s) ✓\n", len(workers))
 
-	fmt.Println("  GlobalStateAccessor production queries verified ✓ (12.3)")
+	fmt.Println("  GlobalStateAccessor production queries verified ✓")
 	return nil
 }
 
 // testGlobalStateAccessorExtended verifies the seven newly implemented
-// GlobalStateAccessor methods (gap-comparison item 12.3 completion) against the
-// live cluster: system config, resource usage, task events, draining nodes, and
+// GlobalStateAccessor methods against the live cluster: system config, resource
+// usage, task events, draining nodes, and
 // the worker debugger methods (using a real worker id from GetAllWorkerInfo).
 func testGlobalStateAccessorExtended() error {
 	accessor, err := gcs.GetGlobalStateAccessor()
@@ -389,11 +389,11 @@ func testGlobalStateAccessorExtended() error {
 	}
 	fmt.Println("  worker debugger port / paused-thread methods ✓")
 
-	fmt.Println("  GlobalStateAccessor extended methods verified ✓ (12.3)")
+	fmt.Println("  GlobalStateAccessor extended methods verified ✓")
 	return nil
 }
 
-// testActorStateFilter verifies item 12.5: GetAllActorInfo(jobID, state)
+// testActorStateFilter verifies GetAllActorInfo(jobID, state)
 // pushes the actor-state filter down to the GCS, returning only actors in the
 // requested state. It creates two Counter actors, kills one (which transitions
 // it to DEAD), then asserts the ALIVE query returns only the live actor and
@@ -596,7 +596,7 @@ func testActorStateFilter() error {
 	if _, err := typed.Task((*userfuncs.Counter).Exit).Remote(); err != nil {
 		return fmt.Errorf("submit Exit for cleanup failed: %w", err)
 	}
-	fmt.Println("  Actor state filter verified ✓ (12.5)")
+	fmt.Println("  Actor state filter verified ✓")
 	return nil
 }
 

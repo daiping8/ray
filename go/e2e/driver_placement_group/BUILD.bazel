@@ -1,12 +1,11 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
 
-# driver_placement_group verifies the Placement Group user API end to end
-# (gap-comparison items 4.1 / 4.2 / 3.1): PG lifecycle (create/wait/get/
-# getByName/getAll/remove) via the api.PlacementGroups facade and the
-# submitter + GCS paths, task/actor placement via WithPlacementGroup
-# (call.go taskOptions[T]/actorOptions[T] main paths), negative binding to a
-# removed PG, option validation, and the local-mode change simulation with
-# query not-supported (AC8).
+# driver_placement_group verifies the Placement Group user API end to end:
+# PG lifecycle (create/wait/get/getByName/getAll/remove) via the
+# api.PlacementGroups facade and the submitter + GCS paths, task/actor placement
+# via WithPlacementGroup (call.go taskOptions[T]/actorOptions[T] main paths),
+# negative binding to a removed PG, option validation, and the local-mode
+# change simulation with not-found queries.
 #
 # Usage:
 #   bazel build //go/e2e/userfuncs/plugin:userfuncs_plugin

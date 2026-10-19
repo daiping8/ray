@@ -1,11 +1,11 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
 
 # runtime_env_driver verifies the user-facing RuntimeEnv API and the autoscaler
-# state report path end to end on a real cluster (gap-comparison items 7.1 and
-# 12.4): the RuntimeEnv value-object API builds/serializes/round-trips runtime
-# envs and submits them via WithRuntimeEnv to an actor (ActorCreationOptions
-# path) and a remote task (CallOptions path), whose workers report them back
-# through RuntimeContext.RuntimeEnv(); the autoscaler path asserts
+# state report path end to end on a real cluster: the RuntimeEnv value-object
+# API builds/serializes/round-trips runtime envs and submits them via
+# WithRuntimeEnv to an actor (ActorCreationOptions path) and a remote task
+# (CallOptions path), whose workers report them back through
+# RuntimeContext.RuntimeEnv(); the autoscaler path asserts
 # gcs.GetClient() resolves to a production client and
 # ReportAutoscalingState -> GetAutoscalerStatus closes the loop.
 #

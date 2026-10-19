@@ -14,7 +14,7 @@
 
 // driver_placement_group is a Ray Go driver that verifies the Placement Group
 // user API end to end on a real cluster (and in local mode). It exercises the
-// surfaces covered by the Go/Java/C++ gap-comparison analysis:
+// surfaces where the Go API previously trailed Java and C++:
 //
 //	Placement Group user API: was completely missing (only a placeholder).
 //	Placement Group strategy: was not exposed.
@@ -145,7 +145,7 @@ func assertNodeInCluster(ctx context.Context, nodeID string, query clusterNodeQu
 }
 
 // testPGLifecycle verifies the full placement group lifecycle in cluster mode:
-// (AC1/AC3/AC4/AC5/AC6/AC7): create returns a PlacementGroup whose accessors
+// create returns a PlacementGroup whose accessors
 // match the creation options, Wait reports ready, the group is discoverable by
 // id, by name (empty namespace falls back to the current namespace, and an
 // explicit namespace also works), and by listing; after Remove the by-id query
@@ -161,7 +161,7 @@ func testPGLifecycle(ctx context.Context) error {
 		return fmt.Errorf("Build PG options failed: %w", err)
 	}
 
-	// AC1: create.
+	// Create.
 	pg, err := api.CreatePlacementGroup(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("CreatePlacementGroup failed: %w", err)
@@ -183,7 +183,7 @@ func testPGLifecycle(ctx context.Context) error {
 	}
 	fmt.Printf("  created %s (id=%s) ✓\n", pg.Name(), pg.ID().Hex())
 
-	// AC7: wait ready.
+	// Wait until ready.
 	ready, err := pg.Wait(60)
 	if err != nil {
 		return fmt.Errorf("pg.Wait failed: %w", err)
@@ -193,7 +193,7 @@ func testPGLifecycle(ctx context.Context) error {
 	}
 	fmt.Println("  pg.Wait(60) -> ready ✓")
 
-	// AC3: get by id.
+	// Query by id.
 	got, err := api.GetPlacementGroup(ctx, pg.ID())
 	if err != nil {
 		return fmt.Errorf("GetPlacementGroup(id) failed: %w", err)
@@ -207,7 +207,7 @@ func testPGLifecycle(ctx context.Context) error {
 	}
 	fmt.Printf("  GetPlacementGroup(id) = %s ✓\n", got.ID().Hex())
 
-	// AC4: get by name with an empty namespace (falls back to current).
+	// Query by name with an empty namespace (falls back to current).
 	rc, err := api.GetRuntimeContext()
 	if err != nil {
 		return fmt.Errorf("GetRuntimeContext failed: %w", err)
@@ -221,7 +221,7 @@ func testPGLifecycle(ctx context.Context) error {
 	}
 	fmt.Println("  GetPlacementGroupByName(name, \"\") matches ✓")
 
-	// AC4: get by name with the explicit current namespace.
+	// Query by name with the explicit current namespace.
 	rc, err = api.GetRuntimeContext()
 	if err != nil {
 		return fmt.Errorf("GetRuntimeContext failed: %w", err)
@@ -236,7 +236,7 @@ func testPGLifecycle(ctx context.Context) error {
 	}
 	fmt.Printf("  GetPlacementGroupByName(name, current namespace %q) matches ✓\n", rc.Namespace())
 
-	// AC5: list contains the group.
+	// Listing contains the group.
 	all, err := api.GetAllPlacementGroups(ctx)
 	if err != nil {
 		return fmt.Errorf("GetAllPlacementGroups failed: %w", err)
@@ -246,7 +246,7 @@ func testPGLifecycle(ctx context.Context) error {
 	}
 	fmt.Printf("  GetAllPlacementGroups() contains %s ✓\n", pg.ID().Hex())
 
-	// AC6: remove, then the PG must transition to the Removed state. GCS keeps
+	// Remove, then the PG must transition to the Removed state. GCS keeps
 	// the table entry with state=REMOVED (state diagram: Created -> Removed),
 	// so poll until the by-id query reports Removed (or the entry disappears).
 	if err := api.RemovePlacementGroup(ctx, pg.ID()); err != nil {
@@ -457,9 +457,9 @@ func testPGValidation(ctx context.Context) error {
 	return nil
 }
 
-// testLocalPGChange verifies the local-mode placement group change simulation
-// (AC8): create generates an in-process id, wait succeeds immediately, and
-// remove deletes the group.
+// testLocalPGChange verifies the local-mode placement group change simulation:
+// create generates an in-process id, wait succeeds immediately, and remove
+// deletes the group.
 func testLocalPGChange() error {
 	pg, err := api.CreatePlacementGroup(context.Background(), &api.PlacementGroupCreationOptions{
 		Name:     newPGName("local-pg"),

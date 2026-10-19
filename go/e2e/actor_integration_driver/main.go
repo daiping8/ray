@@ -24,9 +24,9 @@
 //  3. WithName propagates the task name through the native submitter.
 //  4. WithConcurrencyGroup routes the method call to a named concurrency group:
 //     both the auto-created "_ray_system" group and a group declared at actor
-//     creation via ActorCreator.WithConcurrencyGroups (the 5.2 cluster
-//     downlink: actorOptions -> CGO CActorCreationOptions -> C++
-//     BuildActorOptions -> ConcurrencyGroupManager).
+//     creation via ActorCreator.WithConcurrencyGroups (the downlink path:
+//     actorOptions -> CGO CActorCreationOptions -> C++ BuildActorOptions ->
+//     ConcurrencyGroupManager).
 //  5. Named actors resolved via GetActor reuse the NewNativeActorHandle path.
 //
 // The driver submits ACTOR_CREATION_TASK / ACTOR_TASK requests; the actual
@@ -351,14 +351,14 @@ func testActorSystemConcurrencyGroup() error {
 	return nil
 }
 
-// testActorDeclaredConcurrencyGroup verifies the 5.2 cluster downlink end to
-// end (AC1/AC2): an actor created with ActorCreator.WithConcurrencyGroups
+// testActorDeclaredConcurrencyGroup verifies the declared-concurrency-group
+// downlink end to end: an actor created with ActorCreator.WithConcurrencyGroups
 // declares a named group through the CGO boundary (convertActorCreationOptionsToC
 // -> CActorCreationOptions) into C++ BuildActorOptions and ConcurrencyGroupManager.
 // A task-level WithConcurrencyGroup("cg_go_add") then routes the method call to
 // that declared group, which must execute and return the correct result —
-// instead of crashing in ConcurrencyGroupManager::GetExecutor (the pre-5.2
-// blocking defect) or silently falling back.
+// instead of crashing in ConcurrencyGroupManager::GetExecutor or silently
+// falling back.
 func testActorDeclaredConcurrencyGroup() error {
 	handle, err := api.Actor[*userfuncs.Counter]((*userfuncs.Counter)(nil)).
 		WithConcurrencyGroups(api.ConcurrencyGroup{
@@ -486,7 +486,7 @@ func testActorExit() error {
 }
 
 // testActorCreationOptions verifies the actor creation options aligned with
-// Java/cpp (gap-comparison item 2.1): WithLifetime / WithAsync /
+// Java and C++: WithLifetime / WithAsync /
 // WithMaxPendingCalls flow from the API builder through the CGO submitter into
 // the C++ ActorCreationOptions.
 //
@@ -557,7 +557,7 @@ func testActorCreationOptions() error {
 }
 
 // testActorHandleKill verifies the ActorHandle instance kill methods aligned
-// with Java's BaseActorHandle.kill (gap-comparison item 2.3):
+// with Java's BaseActorHandle.kill:
 //
 //   - KillWithNoRestart() is equivalent to Java kill(true): the actor is
 //     killed without restart, so later method calls fail.

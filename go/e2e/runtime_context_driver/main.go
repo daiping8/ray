@@ -14,7 +14,7 @@
 
 // runtime_context_driver is a Ray Go driver application that verifies the
 // RuntimeContext and resource-ID APIs end to end on a real cluster. It
-// exercises the surfaces covered by the Go/Java/C++ gap-comparison analysis:
+// exercises the surfaces where the Go API previously trailed Java and C++:
 //
 //	RuntimeContext methods: the previously-placeholder methods
 //	    WasCurrentActorRestarted / GetAllNodeInfo / GetAllActorInfo /
@@ -154,7 +154,7 @@ func testDriverContext() error {
 		fmt.Printf("    node[%d] id=%s address=%s alive=%v\n", i, n.NodeID.Hex(), n.NodeAddress, n.IsAlive)
 	}
 
-	// Resource / GPU APIs (item 8.1). The driver process is not a resource
+	// Resource / GPU APIs. The driver process is not a resource
 	// holder: the raylet assigns resources to task/actor workers, not to the
 	// driver, so GetAvailableResourceIds() may legitimately be empty here.
 	// The meaningful assertion is that the calls succeed and return consistent
@@ -250,7 +250,7 @@ func testActorContext() error {
 	}
 	fmt.Printf("  GetAllActorInfo() from actor = %d actor(s) ✓\n", actorCount)
 
-	// GPU / resource APIs resolve from the actor worker (item 8.1).
+	// GPU / resource APIs resolve from the actor worker.
 	if probe["gpu_ids"] == "" && probe["resource_names"] == "" {
 		// No GPU and no resource info is a suspicious outcome; CPU must be
 		// listed even on a GPU-less machine.

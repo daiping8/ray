@@ -2,7 +2,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
 load("@rules_cc//cc:defs.bzl", "cc_binary")
 
 # driver_call_cpp is a Ray Go driver that verifies Go -> C++ cross-language
-# calls and the C++ function descriptor (spec items 10.2/10.5). Build it, then
+# calls and the C++ function descriptor. Build it, then
 # submit via `ray job submit --working-dir .` against a cluster
 # whose raylet has a C++ worker command configured and whose C++ worker loads
 # cpp_xlang_worker.so (see README.md).

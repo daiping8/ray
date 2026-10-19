@@ -1,8 +1,8 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
 
 # global_state_accessor_driver verifies the GlobalStateAccessor production
-# implementation and the actor-list state filter end to end on a real cluster
-# (gap-comparison items 12.3 and 12.5): the singleton resolves to a working
+# implementation and the actor-list state filter end to end on a real cluster:
+# the singleton resolves to a working
 # implementation with live GCS queries, and GetAllActorInfo(jobID, state)
 # pushes the actor-state filter down to the GCS (ALIVE vs DEAD), cross-checked
 # against RuntimeContext.GetAllActorInfoByFilter.

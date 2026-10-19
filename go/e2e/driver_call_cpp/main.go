@@ -15,10 +15,10 @@
 // driver_call_cpp is a Ray Go driver that verifies Go -> C++ cross-language
 // calls and the C++ function descriptor. It covers:
 //
-//	10.2 Go -> C++ calls: RemoteCpp / RemoteCppVoid / CppTaskCaller for
+//	Go -> C++ calls: RemoteCpp / RemoteCppVoid / CppTaskCaller for
 //	    module-level functions, and RemoteCppActor / CppActorCreator /
 //	    CppActorHandle / CppActorTask / CppActorTaskCaller for actors.
-//	10.5 C++ function descriptor: CppFunctionDescriptor construction,
+//	C++ function descriptor: CppFunctionDescriptor construction,
 //	    FunctionDescriptorFromListWithLanguage(LanguageCpp, ...) parsing,
 //	    ToList() (3-element), GetLanguage(), and Hash().
 //
@@ -83,27 +83,27 @@ func main() {
 
 	logger.Info("Ray initialized, running Go->C++ cross-language tests")
 
-	// 10.2: module-level functions.
+	// Module-level functions.
 	if err := testCppFunctionDescriptor(); err != nil {
-		logger.Error(err, "AC5/AC6 (C++ function descriptor) failed")
+		logger.Error(err, "C++ function descriptor test failed")
 		os.Exit(1)
 	}
 	if err := testAdd(); err != nil {
-		logger.Error(err, "AC1 (add) failed")
+		logger.Error(err, "add test failed")
 		os.Exit(1)
 	}
 	if err := testVoid(); err != nil {
-		logger.Error(err, "AC2 (log_event void) failed")
+		logger.Error(err, "log_event void test failed")
 		os.Exit(1)
 	}
 	if err := testCrossLanguageTypes(); err != nil {
-		logger.Error(err, "AC7 (cross-language arg types) failed")
+		logger.Error(err, "cross-language arg types test failed")
 		os.Exit(1)
 	}
 
-	// 10.2: actor calls.
+	// Actor calls.
 	if err := testActor(); err != nil {
-		logger.Error(err, "AC3/AC4 (Calculator actor) failed")
+		logger.Error(err, "Calculator actor test failed")
 		os.Exit(1)
 	}
 	if err := testActorConcurrencyGroup(); err != nil {
@@ -114,11 +114,11 @@ func main() {
 	fmt.Println("\n=== All Go->C++ cross-language tests passed! ===")
 }
 
-// testCppFunctionDescriptor verifies AC5/AC6: CppFunctionDescriptor
+// testCppFunctionDescriptor verifies CppFunctionDescriptor
 // construction, FromListWithLanguage(LanguageCpp) parsing, ToList (3
-// elements), GetLanguage and Hash. This is the 10.5 item.
+// elements), GetLanguage and Hash.
 func testCppFunctionDescriptor() error {
-	// AC5: parse a 3-element C++ descriptor list.
+	// Parse a 3-element C++ descriptor list.
 	parsedDesc, err := function.FunctionDescriptorFromListWithLanguage(
 		function.LanguageCpp, []string{"add", "GO", ""})
 	if err != nil {
@@ -133,7 +133,7 @@ func testCppFunctionDescriptor() error {
 	}
 	fmt.Printf("AC5 parsed CppFunctionDescriptor: %+v, language=%v\n", cppDesc, cppDesc.GetLanguage())
 
-	// AC6: ToList returns the 3-element [functionName, caller, className].
+	// ToList returns the 3-element [functionName, caller, className].
 	list := cppDesc.ToList()
 	if len(list) != 3 {
 		return fmt.Errorf("ToList() has %d elements, want 3: %v", len(list), list)
@@ -143,7 +143,7 @@ func testCppFunctionDescriptor() error {
 	}
 	fmt.Printf("AC6 ToList() = %v (3 elements, matches Java CppFunctionDescriptor.toList())\n", list)
 
-	// AC6: Hash is stable and consistent with the Go hashStrings scheme.
+	// Hash is stable and consistent with the Go hashStrings scheme.
 	h1 := cppDesc.Hash()
 	h2 := cppDesc.Hash()
 	if h1 != h2 {
@@ -184,7 +184,7 @@ func testCppFunctionDescriptor() error {
 	return nil
 }
 
-// testAdd verifies AC1: Go calls the C++ module-level "add" function with two
+// testAdd verifies that Go calls the C++ module-level "add" function with two
 // ints and receives 30.
 func testAdd() error {
 	caller := api.RemoteCpp[int]("add", "")
@@ -203,7 +203,7 @@ func testAdd() error {
 	return nil
 }
 
-// testVoid verifies AC2: a void C++ function executes successfully and the
+// testVoid verifies that a void C++ function executes successfully and the
 // returned ObjectRef is nil with no error.
 func testVoid() error {
 	caller := api.RemoteCppVoid("log_event", "")
@@ -221,7 +221,7 @@ func testVoid() error {
 	return nil
 }
 
-// testCrossLanguageTypes verifies AC7: cross-language serializable types
+// testCrossLanguageTypes verifies cross-language serializable types
 // (string, int slice, string->int map, fully-exported struct) round-trip
 // through the C++ worker.
 func testCrossLanguageTypes() error {
@@ -285,10 +285,10 @@ func testCrossLanguageTypes() error {
 	return nil
 }
 
-// testActor verifies AC3/AC4: create the C++ "Calculator" actor and call its
-// "add" method, then exercise the handle's Kill / KillWithNoRestart.
+// testActor verifies the C++ "Calculator" actor: create it, call its "add"
+// method, then exercise the handle's Kill / KillWithNoRestart.
 func testActor() error {
-	// AC3: create the actor, the handle ID must be non-empty.
+	// Create the actor; the handle ID must be non-empty.
 	handle, err := api.RemoteCppActor("create_actor", "Calculator").Create(0)
 	if err != nil {
 		return fmt.Errorf("create Calculator actor failed: %w", err)
@@ -298,7 +298,7 @@ func testActor() error {
 	}
 	fmt.Printf("AC3 created Calculator actor, ID=%v\n", handle.ID())
 
-	// AC4: call the "add" actor method.
+	// Call the "add" actor method.
 	ref, err := api.CppActorTask[int](handle, "add", 5).Remote()
 	if err != nil {
 		return fmt.Errorf("call Calculator.add failed: %w", err)

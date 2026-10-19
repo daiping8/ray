@@ -67,22 +67,22 @@ func main() {
 	logger.Info("Ray initialized, running Go->Python cross-language tests")
 
 	if err := testModuleLevelFunction(); err != nil {
-		logger.Error(err, "AC1 failed")
+		logger.Error(err, "module-level function test failed")
 		os.Exit(1)
 	}
 	if err := testClassMethod(); err != nil {
-		logger.Error(err, "AC2 failed")
+		logger.Error(err, "actor method test failed")
 		os.Exit(1)
 	}
 	if err := testExceptionPropagation(); err != nil {
-		logger.Error(err, "AC3 failed")
+		logger.Error(err, "exception propagation test failed")
 		os.Exit(1)
 	}
 
 	fmt.Println("\nAll Go->Python cross-language tests passed!")
 }
 
-// testModuleLevelFunction verifies AC1: Go calls a Python module-level function.
+// testModuleLevelFunction verifies that Go calls a Python module-level function.
 func testModuleLevelFunction() error {
 	caller := api.RemotePython[int]("test_go_call_python", "add", "")
 	ref, err := caller.Call(10, 20)
@@ -93,14 +93,14 @@ func testModuleLevelFunction() error {
 	if err != nil {
 		return fmt.Errorf("get add result failed: %w", err)
 	}
-	fmt.Printf("AC1 add(10, 20) = %d (expected 30)\n", result)
+	fmt.Printf("add(10, 20) = %d (expected 30)\n", result)
 	if result != 30 {
 		return fmt.Errorf("add(10, 20) = %d, want 30", result)
 	}
 	return nil
 }
 
-// testClassMethod verifies AC2: Go calls a Python actor method.
+// testClassMethod verifies that Go calls a Python actor method.
 func testClassMethod() error {
 	handle, err := api.RemotePythonActor("test_go_call_python", "Calculator").Create()
 	if err != nil {
@@ -114,14 +114,14 @@ func testClassMethod() error {
 	if err != nil {
 		return fmt.Errorf("get Calculator.add result failed: %w", err)
 	}
-	fmt.Printf("AC2 Calculator.add(5) = %v (expected 5)\n", result)
+	fmt.Printf("Calculator.add(5) = %v (expected 5)\n", result)
 	if result != 5 {
 		return fmt.Errorf("Calculator.add(5) = %v, want 5", result)
 	}
 	return nil
 }
 
-// testExceptionPropagation verifies AC3: Python exception is propagated to Go.
+// testExceptionPropagation verifies that a Python exception is propagated to Go.
 func testExceptionPropagation() error {
 	caller := api.RemotePython[int]("test_go_call_python", "divide", "")
 	ref, err := caller.Call(10, 0)
@@ -132,6 +132,6 @@ func testExceptionPropagation() error {
 	if err == nil {
 		return fmt.Errorf("expected error from divide by zero, got nil")
 	}
-	fmt.Printf("AC3 divide(10, 0) propagated error: %v\n", err)
+	fmt.Printf("divide(10, 0) propagated error: %v\n", err)
 	return nil
 }

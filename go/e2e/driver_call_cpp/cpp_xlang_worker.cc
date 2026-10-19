@@ -13,8 +13,7 @@
 // limitations under the License.
 
 // cpp_xlang_worker registers the C++ functions and actors exercised by the
-// driver_call_cpp Go driver over the Go -> C++ cross-language channel (spec
-// items 10.2 / 10.5).
+// driver_call_cpp Go driver over the Go -> C++ cross-language channel.
 //
 // Every remote function is registered with the exact name the Go driver
 // submits in its CppFunctionDescriptor ("add", "log_event", "concat",
@@ -48,29 +47,29 @@ struct Student {
   MSGPACK_DEFINE(name, age);
 };
 
-/// ---- Module-level functions (10.2 Go -> C++ task calls) ----
+/// ---- Module-level functions (Go -> C++ task calls) ----
 
-/// AC1: two-int add returning an int.
+/// Two-int add returning an int.
 int add(int x, int y) { return x + y; }
 
-/// AC2: a void function that executes successfully (no return value).
+/// A void function that executes successfully (no return value).
 void log_event(const std::string &event) { (void)event; }
 
-/// AC7: string round-trip.
+/// String round-trip.
 std::string concat(const std::string &a, const std::string &b) { return a + b; }
 
-/// AC7: int slice round-trip.
+/// Int slice round-trip.
 std::vector<int> echo_list(const std::vector<int> &list) { return list; }
 
-/// AC7: string -> int map round-trip.
+/// String -> int map round-trip.
 std::map<std::string, int> echo_map(const std::map<std::string, int> &entries) {
   return entries;
 }
 
-/// AC7: fully-exported struct round-trip.
+/// Fully-exported struct round-trip.
 Student echo_student(const Student &s) { return s; }
 
-/// ---- Actor (10.2 Go -> C++ actor calls) ----
+/// ---- Actor (Go -> C++ actor calls) ----
 
 /// Calculator is the cross-language actor class referenced by the Go driver.
 class Calculator {
@@ -79,7 +78,7 @@ class Calculator {
 
   explicit Calculator(int init) { value = init; }
 
-  /// AC4: actor method returning an int.
+  /// Actor method returning an int.
   int add(int x) {
     value += x;
     return value;
@@ -104,7 +103,7 @@ class Calculator {
   }
 };
 
-/// AC3: actor factory function. The Go driver submits the creation descriptor
+/// Actor factory function. The Go driver submits the creation descriptor
 /// with functionName "create_actor" (api.RemoteCppActor("create_actor",
 /// "Calculator")), and the C++ worker's ACTOR_CREATION_TASK branch looks the
 /// name up in the plain (non-member) function table as-is. Registering a

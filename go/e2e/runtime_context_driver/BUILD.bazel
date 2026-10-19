@@ -1,7 +1,7 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
 
 # runtime_context_driver verifies the RuntimeContext and resource-ID APIs end
-# to end on a real cluster (gap-comparison items 6.1 and 8.1): the driver
+# to end on a real cluster: the driver
 # (non-actor) context, the actor context via the userfuncs.RuntimeContextProbe
 # actor, and the filtered actor listing.
 #

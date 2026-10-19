@@ -38,7 +38,7 @@ func GetEchoBytes() func([]byte) []byte {
 
 // runtimeEnvOfTask returns the serialized runtime env observed inside a remote
 // task worker (RuntimeContext.RuntimeEnv()). It is the task-side receiver for
-// the 7.1 task-level submission path (CallOptions.WithRuntimeEnv): the driver
+// the task-level submission path (CallOptions.WithRuntimeEnv): the driver
 // submits a task carrying a runtime env and asserts the worker reports it back.
 //
 // It is registered manually in RegisterFunctions (like echoBytes); raygen

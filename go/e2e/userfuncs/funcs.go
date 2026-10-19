@@ -99,7 +99,7 @@ func RegisterFunctions() error {
 	if err := api.RegisterFunction(echoBytes); err != nil {
 		return err
 	}
-	// runtimeEnvOfTask is the task-side receiver for the 7.1 task-level runtime
+	// runtimeEnvOfTask is the task-side receiver for the task-level runtime
 	// env submission path. Registered manually (no //go:ray:task) so it can be
 	// invoked with zero arguments.
 	if err := api.RegisterFunction(runtimeEnvOfTask); err != nil {

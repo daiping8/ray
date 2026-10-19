@@ -14,7 +14,7 @@
 
 // driver_metrics is a Ray Go driver that verifies the user Metrics API end to
 // end on a real cluster (and the local-mode not-supported behavior). It
-// exercises the surfaces covered by the Go/Java/C++ gap-comparison analysis:
+// exercises the surfaces where the Go API previously trailed Java and C++:
 //
 //	User Metrics API: the user Metrics API (Count / Gauge / Sum / Histogram)
 //	    was completely missing. This driver exercises the go/pkg/runtime/metric
@@ -64,10 +64,10 @@ func metricNamePrefix(suffix string) string {
 }
 
 // testMetricLifecycle verifies tag key registration, the four metric types,
-// Record with aligned tag values, Unregister, and stale-handle rejection
-// (AC11/AC12/AC13) in cluster mode.
+// Record with aligned tag values, Unregister, and stale-handle rejection in
+// cluster mode.
 func testMetricLifecycle() error {
-	// AC11: RegisterTagKey.
+	// Tag key registration.
 	if err := metric.RegisterTagKey("e2e_tag"); err != nil {
 		return fmt.Errorf("RegisterTagKey failed: %w", err)
 	}
@@ -102,7 +102,7 @@ func testMetricLifecycle() error {
 	}
 	fmt.Println("  Histogram registered + Record(3.0) -> nil ✓")
 
-	// AC13: Unregister releases the C++ stats object; a stale handle must then
+	// Unregister releases the C++ stats object; a stale handle must then
 	// be rejected (not a use-after-free).
 	if err := hist.Unregister(); err != nil {
 		return fmt.Errorf("Histogram.Unregister failed: %w", err)
@@ -129,7 +129,7 @@ func testMetricLifecycle() error {
 
 // testLocalMetricNotSupported verifies that in local mode the metric backend
 // is not registered, so metric operations report a clear not-supported error
-// instead of panicking (AC14).
+// instead of panicking.
 func testLocalMetricNotSupported() error {
 	if err := metric.RegisterTagKey("e2e_tag"); err == nil {
 		return fmt.Errorf("local RegisterTagKey should error (backend not registered)")

@@ -70,8 +70,8 @@ func (c *Counter) Exit() error {
 
 // RuntimeContextProbe is an actor that reports the RuntimeContext values
 // observed from inside an actor method execution. It verifies that the
-// RuntimeContext APIs aligned with Java/cpp (gap-comparison items 6.1 and
-// 8.1) resolve correctly in an actor context: the current actor ID, the
+// RuntimeContext APIs aligned with Java and C++ resolve correctly in an actor
+// context: the current actor ID, the
 // current actor handle, the restart status, cluster node/actor listings, and
 // the worker's resource/GPU IDs.
 type RuntimeContextProbe struct{}
@@ -154,8 +154,8 @@ func joinInt64(ids []int64) string {
 
 // RuntimeEnvProbe is an actor that reports the serialized runtime env observed
 // inside an actor method. It verifies that a runtime env submitted via
-// WithRuntimeEnv reaches the Go worker (gap-comparison item 7.1, AC4): the
-// worker-side RuntimeContext.RuntimeEnv() must reflect the submitted fields,
+// WithRuntimeEnv reaches the Go worker: the worker-side
+// RuntimeContext.RuntimeEnv() must reflect the submitted fields,
 // and the "config" key must be preserved so worker-side extractConfigField can
 // parse it.
 type RuntimeEnvProbe struct{}

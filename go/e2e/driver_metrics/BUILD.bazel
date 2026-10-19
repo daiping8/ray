@@ -1,10 +1,9 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
 
-# driver_metrics verifies the user Metrics API end to end (gap-comparison item
-# 13.1): tag key registration, Count/Gauge/Sum/Histogram registration + Record
-# through the cgo metric backend (metric_ops bridge -> stats::Metric),
-# Unregister, stale-handle rejection, and the local-mode not-supported
-# behavior (AC11/AC12/AC13/AC14).
+# driver_metrics verifies the user Metrics API end to end: tag key
+# registration, Count/Gauge/Sum/Histogram registration + Record through the cgo
+# metric backend (metric_ops bridge -> stats::Metric), Unregister, stale-handle
+# rejection, and the local-mode not-supported behavior.
 #
 # Usage:
 #   bazel build //go/e2e/driver_metrics

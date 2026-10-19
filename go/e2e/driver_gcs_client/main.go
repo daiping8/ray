@@ -14,8 +14,8 @@
 
 // driver_gcs_client is a Ray Go driver that verifies the user-facing GCSClient
 // interface extension end to end on a real cluster (and the local-mode
-// not-supported behavior). It exercises the surfaces covered by the
-// Go/Java/C++ gap-comparison analysis:
+// not-supported behavior). It exercises the surfaces where the Go API
+// previously trailed Java and C++:
 //
 //	GCSClient interface extension: the user-facing GCSClient interface was
 //	    too narrow (only 4 methods) and had no user entry point. This driver
@@ -145,9 +145,9 @@ func waitPGGone(ctx context.Context, client api.GCSClient, id ids.PlacementGroup
 	}
 }
 
-// testPGQueries verifies the three placement group query methods added to the
-// api GCSClient (AC9/AC10): by id, by name, and the full listing, against a PG
-// created through the submitter path, including (nil, nil) after removal.
+// testPGQueries verifies the three placement group query methods on the api
+// GCSClient: by id, by name, and the full listing, against a PG created through
+// the submitter path, including (nil, nil) after removal.
 func testPGQueries(ctx context.Context) error {
 	client, err := getAPIGCSClient()
 	if err != nil {
@@ -216,8 +216,8 @@ func testPGQueries(ctx context.Context) error {
 	fmt.Printf("  GetAllPlacementGroupInfo() contains %s ✓\n", pg.ID().Hex())
 
 	// After Remove, the by-id query must observe the removal: a nil entry or a
-	// REMOVED-state entry (AC9 / Java GcsClient.getPlacementGroupInfo semantics
-	// after removal).
+	// REMOVED-state entry (Java GcsClient.getPlacementGroupInfo semantics after
+	// removal).
 	if err := api.RemovePlacementGroup(ctx, pg.ID()); err != nil {
 		return fmt.Errorf("RemovePlacementGroup failed: %w", err)
 	}
@@ -236,7 +236,7 @@ func testPGQueries(ctx context.Context) error {
 	return nil
 }
 
-// testInternalKV verifies the GetInternalKV method (AC9): the value written
+// testInternalKV verifies the GetInternalKV method: the value written
 // through the internal gcs client is read back through the api GCS client.
 func testInternalKV(ctx context.Context) error {
 	apiClient, err := getAPIGCSClient()
@@ -280,7 +280,7 @@ func testInternalKV(ctx context.Context) error {
 	return nil
 }
 
-// testNodeInfo verifies GetAllNodeInfo returns the cluster nodes (AC9).
+// testNodeInfo verifies GetAllNodeInfo returns the cluster nodes.
 func testNodeInfo(ctx context.Context) error {
 	client, err := getAPIGCSClient()
 	if err != nil {
@@ -316,7 +316,7 @@ func actorListed(actorID ids.ActorID, infos []*proto.ActorTableData) bool {
 }
 
 // testActorInfo verifies GetAllActorInfo returns created actors, including the
-// ALIVE state filter (AC9).
+// ALIVE state filter.
 func testActorInfo(ctx context.Context) error {
 	client, err := getAPIGCSClient()
 	if err != nil {
@@ -393,8 +393,7 @@ func testActorInfo(ctx context.Context) error {
 }
 
 // testLocalGCSClientNotSupported verifies that in local mode the GCS client
-// factory is not registered and GetGCSClient returns a not-supported error
-// (AC9).
+// factory is not registered and GetGCSClient returns a not-supported error.
 func testLocalGCSClientNotSupported() error {
 	client, err := api.GetGCSClient()
 	if err == nil {
