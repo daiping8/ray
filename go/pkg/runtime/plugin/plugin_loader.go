@@ -476,6 +476,40 @@ func validateError(v reflect.Value) error {
 	return nil
 }
 
+// validateRuntimeHandle validates a reflect.Value returned by a plugin's
+// Initialize: it must be a non-nil implementation of contract.RuntimeHandle
+// (a typed-nil pointer passes a plain interface assertion, so nil-ness is
+// checked through reflect before any method is called on the handle) whose
+// Runtime() is not nil.
+func validateRuntimeHandle(v reflect.Value) error {
+	if v.IsValid() && isNilReflectValue(v) {
+		return fmt.Errorf("Initialize returned a nil handle of type %T", v.Interface())
+	}
+	handle, ok := v.Interface().(contract.RuntimeHandle)
+	if !ok {
+		return fmt.Errorf("Initialize must return contract.RuntimeHandle, got %T", v.Interface())
+	}
+	if handle.Runtime() == nil {
+		return fmt.Errorf("contract.RuntimeHandle.Runtime() must not be nil")
+	}
+	return nil
+}
+
+// isNilReflectValue reports whether v is a nil value of a nilable kind. It
+// unwraps interfaces so a typed-nil pointer returned through the
+// contract.RuntimeHandle interface (a non-nil interface holding a nil pointer)
+// is detected before any method is dispatched on it.
+func isNilReflectValue(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func:
+		return v.IsNil()
+	case reflect.Interface:
+		return v.IsNil() || isNilReflectValue(v.Elem())
+	default:
+		return false
+	}
+}
+
 // loadPluginInternal loads a plugin from the specified path without caching.
 // This is an internal helper function used by LoadOrGet.
 func loadPluginInternal(pluginPath string, opts options.InitializeOptions) (*RuntimePlugin, error) {
@@ -512,18 +546,7 @@ func loadPluginInternal(pluginPath string, opts options.InitializeOptions) (*Run
 	// Call Initialize function and validate results.
 	initArgs := []reflect.Value{reflect.ValueOf(opts)}
 	initResults, err := callPluginFunc(initFunc, initArgs, 2,
-		func(v reflect.Value) error {
-			// Validate first return value implements contract.RuntimeHandle interface
-			handle, ok := v.Interface().(contract.RuntimeHandle)
-			if !ok {
-				return fmt.Errorf("Initialize must return contract.RuntimeHandle, got %T", v.Interface())
-			}
-			// Additional validation: ensure Runtime() is not nil
-			if handle.Runtime() == nil {
-				return fmt.Errorf("contract.RuntimeHandle.Runtime() must not be nil")
-			}
-			return nil
-		},
+		validateRuntimeHandle,
 		validateError,
 	)
 	if err != nil {
@@ -535,18 +558,7 @@ func loadPluginInternal(pluginPath string, opts options.InitializeOptions) (*Run
 	initialize := func(opts options.InitializeOptions) (contract.RuntimeHandle, error) {
 		args := []reflect.Value{reflect.ValueOf(opts)}
 		results, err := callPluginFunc(initFunc, args, 2,
-			func(v reflect.Value) error {
-				// Validate return value implements contract.RuntimeHandle interface
-				handle, ok := v.Interface().(contract.RuntimeHandle)
-				if !ok {
-					return fmt.Errorf("Initialize must return contract.RuntimeHandle, got %T", v.Interface())
-				}
-				// Additional validation: ensure Runtime() is not nil
-				if handle.Runtime() == nil {
-					return fmt.Errorf("contract.RuntimeHandle.Runtime() must not be nil")
-				}
-				return nil
-			},
+			validateRuntimeHandle,
 			validateError,
 		)
 		if err != nil {
