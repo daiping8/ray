@@ -634,10 +634,6 @@ type ActorCreator[T any] struct {
 	functionDescriptor *function.GoFunctionDescriptor
 	// args are the constructor arguments.
 	args []function.FunctionArg
-	// err is the deferred descriptor-resolution error surfaced by Create. It is
-	// declared explicitly (rather than read from the embedded builder state) so
-	// the creator carries its own creation-time error.
-	err error
 	// actorOptions are the shared actor creation options and builder state.
 	actorOptions[*ActorCreator[T]]
 }
@@ -731,10 +727,6 @@ func (c *ActorCreator[T]) WithMaxConcurrency(maxConcurrency int) *ActorCreator[T
 //   - *ActorHandleImpl[T]: A handle to the created actor.
 //   - error: Any error encountered during actor creation.
 func (c *ActorCreator[T]) Create(args ...interface{}) (*ActorHandleImpl[T], error) {
-	if c.err != nil {
-		return nil, c.err
-	}
-
 	functionArgs := convertArgs(args...)
 
 	actorID, err := createActorWithSubmitter("create_actor", functionArgs, func(s submitter.TaskSubmitter) (ids.ActorID, error) {

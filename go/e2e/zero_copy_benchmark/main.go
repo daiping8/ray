@@ -350,6 +350,16 @@ func runBenchmark(sizes []int, iterations, warmup int) ([]*Stats, error) {
 	return stats, nil
 }
 
+// requireUserfuncsPlugin fails fast when the plugin artifact is missing from
+// the working directory: without the check, worker startup fails late inside
+// raygo's plugin discovery with an opaque error.
+func requireUserfuncsPlugin(path string) {
+	if _, err := os.Stat(path); err != nil {
+		fmt.Fprintf(os.Stderr, "userfuncs plugin not found at %s: build it with `bazel build //go/e2e/userfuncs/plugin:userfuncs_plugin` and ship it in the job's working dir (%v)\n", path, err)
+		os.Exit(1)
+	}
+}
+
 // runDriver initializes Ray against the cluster and runs the benchmark.
 func runDriver() error {
 	cwd, err := os.Getwd()
@@ -360,6 +370,7 @@ func runDriver() error {
 	if sp == "" {
 		sp = filepath.Join(cwd, "userfuncs.so")
 	}
+	requireUserfuncsPlugin(sp)
 
 	// Import userfuncs for its init() side effect (registers echoBytes etc.).
 	builder := options.NewJobConfigBuilder().WithCodeSearchPath(sp)

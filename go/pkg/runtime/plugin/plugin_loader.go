@@ -448,9 +448,10 @@ func callPluginFunc(fn reflect.Value, args []reflect.Value, expectedResults int,
 	}
 	// Validate the trailing error result first: when a plugin function returns
 	// (nil, err) the err must surface as-is instead of being masked by a
-	// value-type validator ("must return gcs.Client, got <nil>"). This also
-	// kills the typed-nil path where a value validator would dereference a nil
-	// pointer (e.g. Initialize's handle.Runtime()) before the error is seen.
+	// value-type validator ("must return gcs.Client, got <nil>"). Error-first
+	// ordering only surfaces a non-nil error without reaching the value
+	// validator; the (typed-nil, nil error) case is rejected by
+	// validateRuntimeHandle's reflect-based nil check, not by this ordering.
 	for i := expectedResults - 1; i >= 0; i-- {
 		if i < len(resultValidators) {
 			if err := resultValidators[i](results[i]); err != nil {

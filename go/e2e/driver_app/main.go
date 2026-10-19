@@ -111,6 +111,16 @@ func e2eTimeout(base time.Duration) time.Duration {
 	return time.Duration(float64(base) * f)
 }
 
+// requireUserfuncsPlugin fails fast when the plugin artifact is missing from
+// the working directory: without the check, worker startup fails late inside
+// raygo's plugin discovery with an opaque error.
+func requireUserfuncsPlugin(path string) {
+	if _, err := os.Stat(path); err != nil {
+		fmt.Fprintf(os.Stderr, "userfuncs plugin not found at %s: build it with `bazel build //go/e2e/userfuncs/plugin:userfuncs_plugin` and ship it in the job's working dir (%v)\n", path, err)
+		os.Exit(1)
+	}
+}
+
 // ============================================================================
 // Application configuration
 // ============================================================================
@@ -202,14 +212,7 @@ func runDriver() {
 		os.Exit(1)
 	}
 	codeSearchPath := filepath.Join(cwd, "userfuncs.so")
-
-	// DEBUG: Print codeSearchPath and verify file exists
-	logger.Info("DEBUG: driver codeSearchPath", "cwd", cwd, "codeSearchPath", codeSearchPath)
-	if _, statErr := os.Stat(codeSearchPath); os.IsNotExist(statErr) {
-		logger.Error(nil, "DEBUG: userfuncs.so does NOT exist at codeSearchPath", "path", codeSearchPath)
-	} else {
-		logger.Info("DEBUG: userfuncs.so exists at codeSearchPath", "path", codeSearchPath)
-	}
+	requireUserfuncsPlugin(codeSearchPath)
 
 	// Build JobConfig with codeSearchPath.
 	// Note: runtime_env is automatically merged from RAY_JOB_CONFIG_JSON_ENV_VAR
