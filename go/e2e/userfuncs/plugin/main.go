@@ -13,12 +13,21 @@
 // limitations under the License.
 
 // Package plugin is the entry point for the userfuncs plugin.
-// It imports userfuncs and calls RegisterFunctions() during initialization.
+// It exports the RegisterFunctions symbol, which the Go worker calls when it
+// loads the plugin (see registerUserFunctions in go/internal/worker/worker.go),
+// and also registers during init() so the functions are available to any code
+// path that links the package directly.
 package main
 
 import (
 	"github.com/ray-project/ray/go/e2e/userfuncs"
 )
+
+// RegisterFunctions registers all user-defined functions with the Ray runtime.
+// The Go worker looks up this symbol by name when the plugin is loaded.
+func RegisterFunctions() error {
+	return userfuncs.RegisterFunctions()
+}
 
 // init is called when the plugin is loaded.
 // It registers all user-defined functions with the runtime.

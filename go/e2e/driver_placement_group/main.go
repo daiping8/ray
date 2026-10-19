@@ -33,9 +33,10 @@
 //
 // Local mode (--run-mode=local) covers:
 //   - create / remove / wait succeed via the in-process map simulation
-//   - get / getByName / getAll return a not-supported error because the GCS
-//     client factory is not registered (aligned with Java RayDevRuntime
-//     throwing UnsupportedOperationException)
+//   - get / getByName / getAll resolve through the in-process store; an
+//     unknown group is a not-found ((nil, nil) / (empty, nil)) rather than an
+//     error, because the GCS client factory is not registered and the facade
+//     falls back to the submitter's local store
 //
 // Build & submit as a Ray job:
 //
@@ -143,7 +144,7 @@ func assertNodeInCluster(ctx context.Context, nodeID string, query clusterNodeQu
 	return fmt.Errorf("node %q is not a current cluster node", nodeID)
 }
 
-// testPGLifecycle verifies the full placement group lifecycle in cluster mode
+// testPGLifecycle verifies the full placement group lifecycle in cluster mode:
 // (AC1/AC3/AC4/AC5/AC6/AC7): create returns a PlacementGroup whose accessors
 // match the creation options, Wait reports ready, the group is discoverable by
 // id, by name (empty namespace falls back to the current namespace, and an
@@ -409,21 +410,27 @@ func testPGValidation(ctx context.Context) error {
 	}
 	fmt.Println("  invalid strategy rejected ✓")
 
-	// Empty name: Build() rejects it, and the facade rejects a directly-built
-	// options struct too.
-	if _, err := api.NewPlacementGroupCreationOptionsBuilder().
+	// Empty name: the name is optional (anonymous placement groups are legal),
+	// so Build() succeeds and the facade creates the group. The created group is
+	// removed immediately so the cluster is left clean.
+	anon, err := api.NewPlacementGroupCreationOptionsBuilder().
 		WithBundles([]map[string]float64{{"CPU": 1}}).
-		Build(); err == nil {
-		return fmt.Errorf("Build with empty name should error")
+		Build()
+	if err != nil {
+		return fmt.Errorf("Build with empty name should succeed (anonymous PG), got %v", err)
 	}
-	fmt.Println("  Build with empty name rejected ✓")
-	if _, err := api.CreatePlacementGroup(ctx, &api.PlacementGroupCreationOptions{
-		Bundles:  []map[string]float64{{"CPU": 1}},
-		Strategy: api.PlacementStrategyPack,
-	}); err == nil {
-		return fmt.Errorf("CreatePlacementGroup with empty name should error")
+	fmt.Println("  Build with empty name succeeds (anonymous PG) ✓")
+	anonPG, err := api.CreatePlacementGroup(ctx, anon)
+	if err != nil {
+		return fmt.Errorf("CreatePlacementGroup with empty name should succeed, got %v", err)
 	}
-	fmt.Println("  CreatePlacementGroup with empty name rejected ✓")
+	if anonPG == nil || anonPG.ID().IsNil() {
+		return fmt.Errorf("CreatePlacementGroup with empty name returned a nil id")
+	}
+	if err := api.RemovePlacementGroup(ctx, anonPG.ID()); err != nil {
+		return fmt.Errorf("RemovePlacementGroup (anonymous PG cleanup) failed: %w", err)
+	}
+	fmt.Println("  CreatePlacementGroup with empty name succeeds ✓")
 
 	// Empty bundles: Build() rejects it, and the facade rejects a directly-built
 	// options struct too.
@@ -483,29 +490,41 @@ func testLocalPGChange() error {
 	return nil
 }
 
-// testLocalPGQueryNotSupported verifies that placement group queries in local
-// mode return a not-supported error because the GCS client factory is not
-// registered (AC8, aligned with Java RayDevRuntime throwing
-// UnsupportedOperationException).
-func testLocalPGQueryNotSupported() error {
+// testLocalPGQueryMissing verifies that placement group queries in local mode
+// resolve through the in-process store: an unknown group is reported as not
+// found ((nil, nil) / (empty, nil)) rather than an error, because local mode
+// keeps its placement groups in a submitter-side map (the GCS client factory
+// is not registered, so the facade falls back to the local store).
+func testLocalPGQueryMissing() error {
 	ctx := context.Background()
 	bogusID := ids.NilPlacementGroupID()
 
-	if _, err := api.GetPlacementGroup(ctx, bogusID); err == nil {
-		return fmt.Errorf("local GetPlacementGroup should error (GCS factory not registered)")
-	} else {
-		fmt.Printf("  local GetPlacementGroup -> error: %v ✓\n", err)
+	pg, err := api.GetPlacementGroup(ctx, bogusID)
+	if err != nil {
+		return fmt.Errorf("local GetPlacementGroup should be a not-found (nil, nil), got error: %v", err)
 	}
-	if _, err := api.GetPlacementGroupByName(ctx, "pg", ""); err == nil {
-		return fmt.Errorf("local GetPlacementGroupByName should error")
-	} else {
-		fmt.Printf("  local GetPlacementGroupByName -> error: %v ✓\n", err)
+	if pg != nil {
+		return fmt.Errorf("local GetPlacementGroup(bogus) = %+v, want nil", pg)
 	}
-	if _, err := api.GetAllPlacementGroups(ctx); err == nil {
-		return fmt.Errorf("local GetAllPlacementGroups should error")
-	} else {
-		fmt.Printf("  local GetAllPlacementGroups -> error: %v ✓\n", err)
+	fmt.Println("  local GetPlacementGroup(bogus) -> (nil, nil) ✓")
+
+	byName, err := api.GetPlacementGroupByName(ctx, "pg", "")
+	if err != nil {
+		return fmt.Errorf("local GetPlacementGroupByName should be a not-found (nil, nil), got error: %v", err)
 	}
+	if byName != nil {
+		return fmt.Errorf("local GetPlacementGroupByName(bogus) = %+v, want nil", byName)
+	}
+	fmt.Println("  local GetPlacementGroupByName(bogus) -> (nil, nil) ✓")
+
+	all, err := api.GetAllPlacementGroups(ctx)
+	if err != nil {
+		return fmt.Errorf("local GetAllPlacementGroups should return the local list, got error: %v", err)
+	}
+	if len(all) != 0 {
+		return fmt.Errorf("local GetAllPlacementGroups after cleanup = %+v, want empty list", all)
+	}
+	fmt.Println("  local GetAllPlacementGroups -> (empty, nil) ✓")
 	return nil
 }
 
@@ -551,11 +570,11 @@ func runLocal() {
 	}
 	fmt.Println("=== TestLocalPGChange PASSED ===\n")
 
-	fmt.Println("=== TestLocalPGQueryNotSupported ===")
-	if err := testLocalPGQueryNotSupported(); err != nil {
-		log.Fatalf("TestLocalPGQueryNotSupported FAILED: %v", err)
+	fmt.Println("=== TestLocalPGQueryMissing ===")
+	if err := testLocalPGQueryMissing(); err != nil {
+		log.Fatalf("TestLocalPGQueryMissing FAILED: %v", err)
 	}
-	fmt.Println("=== TestLocalPGQueryNotSupported PASSED ===\n")
+	fmt.Println("=== TestLocalPGQueryMissing PASSED ===\n")
 
 	fmt.Println("All placement group local-mode checks passed.")
 }

@@ -445,8 +445,9 @@ var goWorkerErrorMetadataBytes = []byte(goWorkerErrorMetadata)
 var metadataTypeTaskExecutionExceptionBytes = []byte(MetadataTypeTaskExecutionException)
 
 // taskExceptionFromGoWorkerError builds a readable task execution exception from a Go worker
-// error object. The worker serializes the error payload via go/pkg/errors.SerializedRayError
-// (see convertGoResultToC in go/internal/runtime/cgo/task_executor.go), and this package
+// error object. The worker serializes the error payload via the internal errors type's
+// ToSerializedForm (see convertGoResultToC in go/internal/runtime/cgo/task_executor.go), whose
+// wire form is shared with -- and pinned against -- pkg/errors.SerializedRayError. This package
 // deserializes the same shared contract type, so the JSON wire format stays in a single
 // definition (dependency inversion: go/internal depends on go/pkg, never the reverse). When the
 // JSON payload cannot be parsed it still returns a readable exception carrying the raw data, so

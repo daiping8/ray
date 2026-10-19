@@ -64,6 +64,7 @@ go_test(
     srcs = [
         "actor_get_python_test.go",
         "actor_registration_test.go",
+        "actor_task_arity_test.go",
         "api_test.go",
         "call_convert_arg_test.go",
         "call_test.go",

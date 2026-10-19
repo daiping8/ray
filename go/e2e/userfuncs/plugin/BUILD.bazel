@@ -9,8 +9,8 @@ load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
 # Output:
 #   bazel-bin/go/e2e/userfuncs/plugin/userfuncs.so
 #
-# The plugin exports the RegisterFunctions symbol which registers all
-# user-defined functions with the Ray runtime when loaded.
+# The plugin exports the RegisterFunctions symbol (func() error), which the Go
+# worker invokes via plugin.Lookup when the .so is loaded from code_search_path.
 go_binary(
     name = "userfuncs_plugin",
     out = "userfuncs.so",
