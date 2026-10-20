@@ -136,6 +136,14 @@ bazel run //:gen_ray_pkg
 export PYTHONPATH="$PWD/python"     # run from the repository root
 ```
 
+Then pin the Go runtime the fleet loads. `raygo` and the driver binaries resolve `go_runtime.so` through a multi-tier search that consults the Python installation first, so a `ray` left behind by an earlier `pip install --user` under `~/.local/lib/pythonX.Y/site-packages` shadows the runtime just built here and every Go driver fails with `plugin was built with a different version of package ...`. Pin the tree's runtime:
+
+```bash
+export RAY_GO_RUNTIME_PATH="$PWD/python/ray/go/lib/go_runtime.so"
+```
+
+The pin has to cover the cluster as well as the client. `ray start` passes its environment to the raylet, and the raylet passes it to the task workers it spawns, so exporting the variable before `ray start` gives the driver and its workers the same build. Exporting it only for `ray job submit` reaches the driver but not the workers, which then load the stale runtime; the two builds disagree on the wire and the driver dies with a SIGSEGV in the object-store release path.
+
 4. Bring up a cluster or point at one. Phase 1 runs against a local head node; Phase 2 runs against an existing cluster selected with `RAY_ADDRESS` (or `--cluster-address`).
 
 ```bash
@@ -143,6 +151,8 @@ ray start --head                    # Phase 1
 # or, for Phase 2 against an existing cluster:
 export RAY_ADDRESS=<ray-address>    # the address printed by `ray start` / the cluster's dashboard
 ```
+
+If a token already exists at `~/.ray/auth_token`, `ray start --head` enables token authentication for the cluster by default, and `ray status` or `ray job submit` run from a fresh shell is then rejected with `InvalidAuthToken`, because a client with `RAY_AUTH_MODE` unset defaults to auth mode `disabled` and sends no token. Either export `RAY_AUTH_MODE=token` for the session (the existing token file already matches the cluster), or opt out of token auth for a local run with `RAY_AUTH_MODE=disabled` before `ray start`.
 
 5. Run the fleet.
 
