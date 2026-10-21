@@ -336,7 +336,7 @@ func (r *Ray) InitializeWithJobConfig(builder *options.JobConfigBuilder) error {
 }
 
 // buildJobOptionsFromBuilder merges the job-injected configuration
-// (runtime_env and metadata from RAY_JOB_CONFIG_JSON_ENV_VAR) into the
+// (runtime_env and metadata from RAY_JOB_CONFIG_JSON_ENV_VAR) into a copy of the
 // caller's builder and then builds the resulting JobOptions.
 //
 // The merge mirrors the default path in InitWithOptions: when a job is
@@ -351,11 +351,21 @@ func (r *Ray) InitializeWithJobConfig(builder *options.JobConfigBuilder) error {
 // The merge is additive and conflict-checked by JobConfigBuilder.MergeFromEnv;
 // the caller's explicit settings win on conflicts unless
 // RAY_OVERRIDE_JOB_RUNTIME_ENV=1 is required to permit them.
+//
+// Merging into a copy rather than into the caller's builder keeps this function
+// repeatable: MergeFromEnv writes the job-injected runtime_env into the builder
+// when the caller set none, and a second call on the same builder (a retry
+// after a failed initialization, for example) would then find a runtime_env
+// already there and merge the job-injected value with itself. checkConflict
+// reports a shared key as a conflict whatever its value, matching Python's
+// _merge_runtime_env, so that retry would fail with a conflict the caller never
+// created.
 func buildJobOptionsFromBuilder(builder *options.JobConfigBuilder) (options.JobOptions, error) {
-	if err := builder.MergeFromEnv(); err != nil {
+	merged := builder.Clone()
+	if err := merged.MergeFromEnv(); err != nil {
 		return options.JobOptions{}, fmt.Errorf("failed to merge job config from environment: %w", err)
 	}
-	jobOpts, err := builder.BuildToJobOptions()
+	jobOpts, err := merged.BuildToJobOptions()
 	if err != nil {
 		return options.JobOptions{}, fmt.Errorf("failed to build JobConfig: %w", err)
 	}

@@ -188,7 +188,7 @@ Three things must come from the same tree for a run to be meaningful (see [Locks
 
 ## Run matrix and pass criterion
 
-The runner has two phases, selected with `--phase 1|2`. Phase 1 is the single-language fleet and runs against a local head node. Phase 2 is the cross-language set and runs against a remote cluster; its rows depend on artifacts and runtime capabilities the Phase 1 set does not. The run finishes with a load-tolerance re-run of the polling drivers at a raised deadline scale. Both phases stage the `userfuncs.so` plugin next to each driver unless noted.
+The runner has two phases, selected with `--phase 1|2`. Phase 1 is the single-language fleet and runs against a local head node. Phase 2 is the cross-language set and runs against a remote cluster; its rows depend on artifacts and runtime capabilities the Phase 1 set does not. The run finishes with a load-tolerance re-run of the polling drivers at a raised deadline scale. Both phases stage the `userfuncs.so` plugin next to every row, including the standalone Python lane, whose `code_search_path` is the relative `./userfuncs.so` and which therefore needs the copy in its job directory as much as a Go driver does; only the Go driver binary is lane-specific and skipped there.
 
 ### Phase 1 — single-language fleet
 

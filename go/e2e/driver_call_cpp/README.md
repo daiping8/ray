@@ -72,14 +72,14 @@ cd /tmp/cpp_job_dir && ray job submit --working-dir . -- ./driver_call_cpp
 Expected output (partial):
 
 ```
-AC5 parsed CppFunctionDescriptor: &{CreateFunctionName:add Caller:GO ClassName:}, language=2
-AC6 ToList() = [add GO ] (3 elements, matches Java CppFunctionDescriptor.toList())
-AC1 add(10, 20) = 30 (expected 30)
-AC2 log_event returned ref==nil: true, err=<nil>
-AC7 echo_student({tom 20}) = {Name:tom Age:20}
-AC3 created Calculator actor, ID=...
-AC4 Calculator.add(10) after add(5) = 15 (expected 15)
-AC4 call after KillWithNoRestart correctly failed: ...
+parsed CppFunctionDescriptor: &{CreateFunctionName:add Caller:GO ClassName:}, language=2
+ToList() = [add GO ] (3 elements, matches Java CppFunctionDescriptor.toList())
+add(10, 20) = 30 (expected 30)
+log_event returned ref==nil: true, err=<nil>
+echo_student({tom 20}) = {Name:tom Age:20}
+created Calculator actor, ID=...
+Calculator.add(10) after add(5) = 15 (expected 15)
+call after KillWithNoRestart correctly failed: ...
 === All Go->C++ cross-language tests passed! ===
 ```
 

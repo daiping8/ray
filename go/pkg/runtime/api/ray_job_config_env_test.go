@@ -17,6 +17,7 @@ package api
 import (
 	"encoding/base64"
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/ray-project/ray/go/pkg/options"
@@ -113,5 +114,41 @@ func TestBuildJobOptionsFromBuilderMergesCallerAndJobRuntimeEnv(t *testing.T) {
 	}
 	if envVars["FROM_JOB"] != "1" || envVars["FROM_CALLER"] != "2" {
 		t.Fatalf("runtime_env env_vars = %v, want both caller and job env vars present", envVars)
+	}
+}
+
+// TestBuildJobOptionsFromBuilderIsRepeatable proves the merge does not write the
+// job-injected configuration back into the caller's builder. A caller that
+// retries initialization with the same builder - after a transient failure, for
+// example - must not be told it has a runtime_env conflict it never created.
+// Before the merge was moved onto a copy, the first call stored the
+// job-injected runtime_env in the builder and the second merged that value with
+// itself, and checkConflict reports a shared key as a conflict whatever the
+// values are.
+func TestBuildJobOptionsFromBuilderIsRepeatable(t *testing.T) {
+	t.Setenv(options.JobConfigJSONEnvVar,
+		`{"runtime_env":{"working_dir":"gcs://_ray_pkg_test.zip","env_vars":{"FROM_JOB":"1"}},`+
+			`"metadata":{"job_key":"job_value"}}`)
+
+	builder := options.NewJobConfigBuilder().
+		WithCodeSearchPath("/tmp/ray/userfuncs.so").
+		// An explicit namespace keeps the generated default (a fresh UUID per
+		// build) out of the comparison below.
+		WithNamespace("repeatable-test")
+
+	first, err := buildJobOptionsFromBuilder(builder)
+	if err != nil {
+		t.Fatalf("first buildJobOptionsFromBuilder() error = %v", err)
+	}
+	second, err := buildJobOptionsFromBuilder(builder)
+	if err != nil {
+		t.Fatalf("second buildJobOptionsFromBuilder() on the same builder error = %v", err)
+	}
+	if !reflect.DeepEqual(decodeJobConfig(t, first), decodeJobConfig(t, second)) {
+		t.Fatalf("retrying with the same builder produced a different JobConfig:\nfirst  = %v\nsecond = %v",
+			decodeJobConfig(t, first), decodeJobConfig(t, second))
+	}
+	if got := builder.RuntimeEnvJSON(); got != "" {
+		t.Fatalf("builder.RuntimeEnvJSON() = %q after the call, want the caller's builder left untouched", got)
 	}
 }

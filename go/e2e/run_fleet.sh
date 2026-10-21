@@ -19,8 +19,11 @@
 #                        Default: $RAY_ADDRESS when set, otherwise "auto".
 #   --results-dir DIR    Where the per-driver logs and the summary are written.
 #                        Default: ./fleet-results-<UTC timestamp>.
-#   --dry-run            Perform every check and print the exact build, stage and
-#                        submit commands, submitting nothing.
+#   --dry-run            Perform every environment check and print the exact
+#                        build, stage and submit commands, submitting nothing.
+#                        Checks that depend on build outputs (the userfuncs
+#                        plugin, built by this run) are printed as build steps
+#                        rather than performed.
 #
 # Exit status: 0 only when every selected driver passed.
 #
@@ -229,8 +232,10 @@ preflight() {
     artifact_problem "go_runtime.so missing at $pygo/lib/go_runtime.so; same fix as raygo"
   fi
 
-  # 5. plugin built
-  [[ -f "$PLUGIN" ]] || artifact_problem "plugin missing at $PLUGIN; run 'bazel build //go/e2e/userfuncs/plugin:userfuncs_plugin'"
+  # The userfuncs plugin is deliberately not checked here: //go/e2e/... in
+  # BUILD_TARGETS builds it, so on a fresh checkout it does not exist yet and a
+  # check at this point would stop the run with a manual build instruction the
+  # runner is about to satisfy itself. build_tree checks it after the build.
 }
 
 # verify_runtime_same_tree: the raygo/go_runtime.so pair the environment loads
@@ -273,6 +278,11 @@ build_tree() {
   printf 'building %s\n' "${BUILD_TARGETS[*]}"
   ( cd "$ROOT" && bazel build "${BUILD_TARGETS[@]}" ) \
     || die "bazel build ${BUILD_TARGETS[*]} failed; the tree and the raygo package were not rebuilt"
+  # //go/e2e/... covers //go/e2e/userfuncs/plugin, so the plugin exists from
+  # here on; every staged row copies it, and the Python lane needs it in its job
+  # directory because its code_search_path is the relative "./userfuncs.so".
+  [[ -f "$PLUGIN" ]] \
+    || artifact_problem "plugin missing at $PLUGIN after the build; run 'bazel build //go/e2e/userfuncs/plugin:userfuncs_plugin'"
   verify_runtime_same_tree
 }
 
@@ -287,14 +297,18 @@ resolve_extra() {   # $1=driver  $2="src:PATH"|"bin:NAME"  -> prints the source 
 stage_job_dir() {   # $1=driver  $2=comma-separated extras (may be empty)
   local d="$1" extra="$2" bin="$ROOT/bazel-bin/go/e2e/$1/${1}_/$1"
   local job="$RESULTS/$d.job"; rm -rf "$job"; mkdir -p "$job"
+  # Only the driver binary is lane-specific: the standalone Python lane has no
+  # Go driver to stage. The plugin is staged for every row, because that lane's
+  # code_search_path is the relative "./userfuncs.so" and the Go worker its task
+  # lands on opens the plugin from the job directory.
   if [[ "$d" != "test_python_call_go_simple" ]]; then
     [[ -f "$bin" ]] || die "driver binary missing at $bin — did the build step run?"
     cp "$bin" "$job/$d"
-    cp "$PLUGIN" "$job/userfuncs.so"
   fi
+  cp "$PLUGIN" "$job/userfuncs.so"
   local e src
   IFS=',' read -ra EX <<<"$extra"
-  for e in "${EX[@]}"; do
+  for e in ${EX[@]+"${EX[@]}"}; do
     [[ -z "$e" ]] && continue
     src="$(resolve_extra "$d" "$e")" || die "cannot resolve extra '$e' for $d"
     [[ -f "$src" ]] || die "extra file missing at $src (declared as '$e')"
@@ -326,11 +340,11 @@ plan_driver() {     # $1=exec mode  $2=driver  $3=args  $4=extras
   printf '    mkdir -p %s\n' "$job"
   if [[ "$d" != "test_python_call_go_simple" ]]; then
     printf '    cp %s %s/%s\n' "$ROOT/bazel-bin/go/e2e/$d/${d}_/$d" "$job" "$d"
-    printf '    cp %s %s/userfuncs.so\n' "$PLUGIN" "$job"
   fi
+  printf '    cp %s %s/userfuncs.so\n' "$PLUGIN" "$job"
   local e src
   IFS=',' read -ra EX <<<"$extra"
-  for e in "${EX[@]}"; do
+  for e in ${EX[@]+"${EX[@]}"}; do
     [[ -z "$e" ]] && continue
     src="$(resolve_extra "$d" "$e")" || die "cannot resolve extra '$e' for $d"
     printf '    cp %s %s/%s\n' "$src" "$job" "$(basename "$src")"
@@ -398,8 +412,8 @@ compare() {         # $1=driver  $2=log  $3=args  prints PASS/FAIL and the reaso
     echo "PASS $d (rc=0, counted=$observed)"; return 0
   fi
   # Tier 2 -- marker presence: the log must carry a marker the SOURCE declares.
-  # driver_call_python/cpp land here (they declare func test... but report
-  # through AC-labelled lines plus a final "tests passed!" line), as do the
+  # driver_call_python/cpp land here (they declare func test... but report one
+  # descriptive line per check plus a final "tests passed!" line), as do the
   # --run-mode=local rows.
   local markers=() m
   grep -q "$conv"  "$src" && markers+=("$conv")
@@ -439,7 +453,11 @@ select_rows() {
 # a word, leaving the run to proceed on the other selections.
 check_driver_names() {
   local want row exec_ phase driver extra args
-  for want in "${SELECTED[@]}"; do
+  # ${SELECTED[@]+"${SELECTED[@]}"} keeps the default no --driver invocation
+  # working on bash before 4.4, where an empty array expansion is an unbound
+  # variable under `set -u` (the script's other array expansions are guarded the
+  # same way, or by an explicit length test).
+  for want in ${SELECTED[@]+"${SELECTED[@]}"}; do
     local in_table=0 in_phase=0 other_phase=""
     for row in "${DRIVER_TABLE[@]}"; do
       IFS='|' read -r exec_ phase driver extra args <<<"$row"

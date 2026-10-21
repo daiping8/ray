@@ -34,20 +34,20 @@ type MsgpackSerializer struct {
 const MessagePackOffset = 9
 
 // newEncoder returns a MessagePack encoder configured for the Go runtime's
-// wire format.
+// wire format. useArrayEncodedStructs comes from the caller's single
+// cross-language decision (see isCrossLanguageValue) rather than being
+// recomputed here, so the encoder's struct layout and the payload's metadata
+// tag always agree and the type is only walked once per serialization.
 //
-// Cross-language values are encoded with positional array structs
-// (UseArrayEncodedStructs), so a Go struct matches the C++ runtime's
-// MSGPACK_DEFINE layout, which packs the fields in declaration order as a
-// msgpack array. Without this, a Go struct is encoded as a msgpack map and the
-// C++ worker fails with "msgpack::v1::type_error: std::bad_cast" when it
-// converts the argument to the MSGPACK_DEFINE type. Go-internal types (those
-// with unexported fields, for which IsCrossLanguageType is false) keep the
-// default map encoding.
-func newEncoder(w io.Writer, obj interface{}) *msgpack.Encoder {
+// The flag is a property of the encoder, not of the top-level value: with it
+// set, every struct that encoder writes -- including a Go-internal struct
+// reached through an interface{} element of a cross-language value -- is
+// written as a positional array, and any unexported field it has is skipped
+// rather than encoded.
+func newEncoder(w io.Writer, useArrayEncodedStructs bool) *msgpack.Encoder {
 	enc := msgpack.NewEncoder(w)
 	enc.UseCompactInts(true)
-	enc.UseArrayEncodedStructs(IsCrossLanguageType(obj))
+	enc.UseArrayEncodedStructs(useArrayEncodedStructs)
 	return enc
 }
 
@@ -122,7 +122,7 @@ func (s *MsgpackSerializer) SetRegistry(registry *ExtensionRegistry) {
 // If ExtensionRegistry is set, uses extension mechanism for language-specific types.
 func (s *MsgpackSerializer) Encode(obj interface{}) ([]byte, error) {
 	var buf bytes.Buffer
-	enc := newEncoder(&buf, obj)
+	enc := newEncoder(&buf, isCrossLanguageValue(obj))
 
 	if s.registry != nil {
 		if packer := s.registry.FindPacker(obj); packer != nil {
@@ -195,11 +195,16 @@ func (s *MsgpackSerializer) packExtension(obj interface{}, packer TypePacker) ([
 // EncodeToBuffer serializes an object to a pre-allocated buffer.
 // This is more efficient for large objects as it avoids buffer copying.
 // Adds 9-byte length header at the beginning of the buffer.
-func (s *MsgpackSerializer) EncodeToBuffer(obj interface{}, buf *[]byte) error {
+//
+// useArrayEncodedStructs is the caller's cross-language decision for obj (see
+// isCrossLanguageValue). It is passed in rather than recomputed so that the
+// struct layout matches the metadata tag the caller wrote from the same
+// decision, and so the recursive type walk happens once per serialization.
+func (s *MsgpackSerializer) EncodeToBuffer(obj interface{}, buf *[]byte, useArrayEncodedStructs bool) error {
 	// Reserve 9 bytes for length header
 	*buf = (*buf)[:MessagePackOffset]
 
-	enc := newEncoder(&byteSliceWriter{buf: buf}, obj)
+	enc := newEncoder(&byteSliceWriter{buf: buf}, useArrayEncodedStructs)
 	startPos := len(*buf)
 
 	if err := enc.Encode(obj); err != nil {

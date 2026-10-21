@@ -156,7 +156,7 @@ func TestEncodeToBufferWithHeader(t *testing.T) {
 	buf := make([]byte, 0, 1024)
 	obj := map[string]interface{}{"key": "value", "num": int64(42)}
 
-	err := s.EncodeToBuffer(obj, &buf)
+	err := s.EncodeToBuffer(obj, &buf, isCrossLanguageValue(obj))
 	if err != nil {
 		t.Fatalf("EncodeToBuffer failed: %v", err)
 	}
@@ -288,7 +288,8 @@ func TestEncodeCrossLanguageStructIsPositionalArray(t *testing.T) {
 	s := NewMsgpackSerializer()
 
 	buf := make([]byte, 0, 1024)
-	if err := s.EncodeToBuffer(xlangStudent{Name: "tom", Age: 20}, &buf); err != nil {
+	if err := s.EncodeToBuffer(xlangStudent{Name: "tom", Age: 20}, &buf,
+		isCrossLanguageValue(xlangStudent{Name: "tom", Age: 20})); err != nil {
 		t.Fatalf("EncodeToBuffer failed: %v", err)
 	}
 	payload := buf[MessagePackOffset:]

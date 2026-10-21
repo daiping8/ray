@@ -191,7 +191,7 @@ func testCppFunctionDescriptor() error {
 	if lang := cppDesc.GetLanguage(); lang != function.LanguageCpp {
 		return fmt.Errorf("GetLanguage() = %v, want LanguageCpp", lang)
 	}
-	fmt.Printf("AC5 parsed CppFunctionDescriptor: %+v, language=%v\n", cppDesc, cppDesc.GetLanguage())
+	fmt.Printf("parsed CppFunctionDescriptor: %+v, language=%v\n", cppDesc, cppDesc.GetLanguage())
 
 	// ToList returns the 3-element [functionName, caller, className].
 	list := cppDesc.ToList()
@@ -201,7 +201,7 @@ func testCppFunctionDescriptor() error {
 	if list[0] != "add" || list[1] != "GO" || list[2] != "" {
 		return fmt.Errorf("ToList() = %v, want [add GO ]", list)
 	}
-	fmt.Printf("AC6 ToList() = %v (3 elements, matches Java CppFunctionDescriptor.toList())\n", list)
+	fmt.Printf("ToList() = %v (3 elements, matches Java CppFunctionDescriptor.toList())\n", list)
 
 	// Hash is stable and consistent with the Go hashStrings scheme.
 	h1 := cppDesc.Hash()
@@ -217,7 +217,7 @@ func testCppFunctionDescriptor() error {
 	if h1 != desc2.Hash() {
 		return fmt.Errorf("Hash() differs across equivalent descriptors: %d vs %d", h1, desc2.Hash())
 	}
-	fmt.Printf("AC6 Hash() = %d (stable)\n", h1)
+	fmt.Printf("Hash() = %d (stable)\n", h1)
 
 	// NewCppFunctionDescriptorOrUnknown must never fail and substitutes
 	// "unknown" for an invalid function name. C++ function names are more
@@ -267,7 +267,7 @@ func testAdd() error {
 	if err != nil {
 		return fmt.Errorf("get add result failed: %w", err)
 	}
-	fmt.Printf("AC1 add(10, 20) = %d (expected 30)\n", result)
+	fmt.Printf("add(10, 20) = %d (expected 30)\n", result)
 	if result != 30 {
 		return fmt.Errorf("add(10, 20) = %d, want 30", result)
 	}
@@ -285,7 +285,7 @@ func testVoid() error {
 	// Compare ref to nil directly; do not %v-print the possibly-nil
 	// *ObjectRef[struct{}] value, which exercises String() on a ref whose
 	// objectID may be an invalid zero value.
-	fmt.Printf("AC2 log_event returned ref==nil: %v\n", ref == nil)
+	fmt.Printf("log_event returned ref==nil: %v\n", ref == nil)
 	if ref != nil {
 		return fmt.Errorf("log_event ObjectRef != nil, want nil")
 	}
@@ -305,7 +305,7 @@ func testCrossLanguageTypes() error {
 	if err != nil {
 		return fmt.Errorf("get concat result failed: %w", err)
 	}
-	fmt.Printf("AC7 concat(foo, bar) = %q (expected foobar)\n", concatResult)
+	fmt.Printf("concat(foo, bar) = %q (expected foobar)\n", concatResult)
 	if concatResult != "foobar" {
 		return fmt.Errorf("concat = %q, want foobar", concatResult)
 	}
@@ -319,7 +319,7 @@ func testCrossLanguageTypes() error {
 	if err != nil {
 		return fmt.Errorf("get echo_list result failed: %w", err)
 	}
-	fmt.Printf("AC7 echo_list([1 2 3]) = %v\n", listResult)
+	fmt.Printf("echo_list([1 2 3]) = %v\n", listResult)
 	if len(listResult) != 3 || listResult[0] != 1 || listResult[1] != 2 || listResult[2] != 3 {
 		return fmt.Errorf("echo_list = %v, want [1 2 3]", listResult)
 	}
@@ -334,7 +334,7 @@ func testCrossLanguageTypes() error {
 	if err != nil {
 		return fmt.Errorf("get echo_map result failed: %w", err)
 	}
-	fmt.Printf("AC7 echo_map({a:1 b:2}) = %v\n", mapResult)
+	fmt.Printf("echo_map({a:1 b:2}) = %v\n", mapResult)
 	if mapResult["a"] != 1 || mapResult["b"] != 2 {
 		return fmt.Errorf("echo_map = %v, want {a:1 b:2}", mapResult)
 	}
@@ -349,7 +349,7 @@ func testCrossLanguageTypes() error {
 	if err != nil {
 		return fmt.Errorf("get echo_student result failed: %w", err)
 	}
-	fmt.Printf("AC7 echo_student({tom 20}) = %+v\n", studentResult)
+	fmt.Printf("echo_student({tom 20}) = %+v\n", studentResult)
 	if studentResult.Name != "tom" || studentResult.Age != 20 {
 		return fmt.Errorf("echo_student = %+v, want {tom 20}", studentResult)
 	}
@@ -368,7 +368,7 @@ func testActor() error {
 	if handle.ID().IsNil() {
 		return fmt.Errorf("Calculator actor handle ID is nil")
 	}
-	fmt.Printf("AC3 created Calculator actor, ID=%v\n", handle.ID())
+	fmt.Printf("created Calculator actor, ID=%v\n", handle.ID())
 
 	// Call the "add" actor method.
 	ref, err := api.CppActorTask[int](handle, "add", 5).Remote()
@@ -379,7 +379,7 @@ func testActor() error {
 	if err != nil {
 		return fmt.Errorf("get Calculator.add result failed: %w", err)
 	}
-	fmt.Printf("AC4 Calculator.add(5) = %d (expected 5)\n", result)
+	fmt.Printf("Calculator.add(5) = %d (expected 5)\n", result)
 	if result != 5 {
 		return fmt.Errorf("Calculator.add(5) = %d, want 5", result)
 	}
@@ -393,7 +393,7 @@ func testActor() error {
 	if err != nil {
 		return fmt.Errorf("get second Calculator.add result failed: %w", err)
 	}
-	fmt.Printf("AC4 Calculator.add(10) after add(5) = %d (expected 15)\n", result2)
+	fmt.Printf("Calculator.add(10) after add(5) = %d (expected 15)\n", result2)
 	if result2 != 15 {
 		return fmt.Errorf("Calculator.add(10) after add(5) = %d, want 15", result2)
 	}
@@ -420,7 +420,7 @@ func testActor() error {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	fmt.Printf("AC4 call after KillWithNoRestart correctly failed: %v\n", err)
+	fmt.Printf("call after KillWithNoRestart correctly failed: %v\n", err)
 	return nil
 }
 
