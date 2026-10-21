@@ -81,8 +81,16 @@ func TestMsgpackSerializer_SerializeComplex(t *testing.T) {
 	s := NewMsgpackSerializer()
 
 	tests := []struct {
-		name  string
+		name string
+		// value is the value to encode.
 		value interface{}
+		// decoded is the JSON-comparable form a round trip through
+		// interface{} must produce; it defaults to value when nil. A
+		// fully-exported struct is a cross-language type and is encoded as a
+		// positional msgpack array (matching the C++ MSGPACK_DEFINE
+		// layout), so its round trip yields a positional slice rather than a
+		// map.
+		decoded interface{}
 	}{
 		{
 			"map",
@@ -91,10 +99,12 @@ func TestMsgpackSerializer_SerializeComplex(t *testing.T) {
 				"b": "string",
 				"c": []int{1, 2, 3},
 			},
+			nil,
 		},
 		{
 			"slice",
 			[]interface{}{1, "two", 3.0, true},
+			nil,
 		},
 		{
 			"struct",
@@ -102,12 +112,14 @@ func TestMsgpackSerializer_SerializeComplex(t *testing.T) {
 				A int
 				B string
 			}{42, "test"},
+			[]interface{}{int8(42), "test"},
 		},
 		{
 			"nested",
 			map[string]map[string]int{
 				"outer": {"inner": 42},
 			},
+			nil,
 		},
 	}
 
@@ -124,7 +136,11 @@ func TestMsgpackSerializer_SerializeComplex(t *testing.T) {
 				t.Fatalf("Decode() error = %v", err)
 			}
 
-			compareJSON(t, result, tt.value)
+			want := tt.value
+			if tt.decoded != nil {
+				want = tt.decoded
+			}
+			compareJSON(t, result, want)
 		})
 	}
 }

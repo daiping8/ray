@@ -108,8 +108,10 @@ func e2eTimeout(base time.Duration) time.Duration {
 }
 
 // Student mirrors the C++ Student struct (name, age) registered in
-// cpp_xlang_worker.cc. Field names must serialize to the same msgpack keys as
-// the C++ MSGPACK_DEFINE(name, age); the msgpack tags pin them to lowercase.
+// cpp_xlang_worker.cc. The Go runtime encodes a fully-exported (cross-language)
+// struct as a positional msgpack array to match the C++ MSGPACK_DEFINE(name,
+// age) layout, so the field order must match the C++ declaration. The msgpack
+// tags only name the fields for the Go-internal map-encoding fallback.
 type Student struct {
 	Name string `msgpack:"name"`
 	Age  int    `msgpack:"age"`
@@ -218,12 +220,19 @@ func testCppFunctionDescriptor() error {
 	fmt.Printf("AC6 Hash() = %d (stable)\n", h1)
 
 	// NewCppFunctionDescriptorOrUnknown must never fail and substitutes
-	// "unknown" for invalid required fields. Note C++ function names are more
+	// "unknown" for an invalid function name. C++ function names are more
 	// permissive than Go identifiers (qualified names, template args etc. are
-	// legal), so only whitespace / empty names are invalid here.
+	// legal), so only a whitespace-bearing or empty name is invalid here. The
+	// caller is NOT substituted: an empty caller is a valid value that
+	// identifies a native C++ function descriptor (see NewCppFunctionDescriptor
+	// and TestNewCppFunctionDescriptorOrUnknown), so it must pass through
+	// unchanged rather than being corrupted to "unknown".
 	desc := function.NewCppFunctionDescriptorOrUnknown("bad name", "", "X")
-	if desc.CreateFunctionName != "unknown" || desc.Caller != "unknown" {
-		return fmt.Errorf("OrUnknown substitution mismatch: %+v", desc)
+	if desc.CreateFunctionName != "unknown" {
+		return fmt.Errorf("OrUnknown function-name substitution mismatch: %+v", desc)
+	}
+	if desc.Caller != "" {
+		return fmt.Errorf("OrUnknown corrupted a valid empty caller: %+v", desc)
 	}
 
 	// Reject malformed input: a 4-element list is invalid for C++ descriptors.
@@ -232,12 +241,16 @@ func testCppFunctionDescriptor() error {
 		return fmt.Errorf("expected error for 4-element C++ descriptor list")
 	}
 
-	// NewCppFunctionDescriptor validates required fields.
+	// NewCppFunctionDescriptor validates the function name (required) but
+	// accepts an empty caller: an empty caller is the native C++ descriptor
+	// form (see TestNewCppFunctionDescriptor_EmptyCaller), not an invalid field.
 	if _, err := function.NewCppFunctionDescriptor("", "GO", ""); err == nil {
 		return fmt.Errorf("expected error for empty function name")
 	}
-	if _, err := function.NewCppFunctionDescriptor("add", "", ""); err == nil {
-		return fmt.Errorf("expected error for empty caller")
+	if desc, err := function.NewCppFunctionDescriptor("add", "", ""); err != nil {
+		return fmt.Errorf("empty caller must be accepted as a native C++ descriptor, got error: %w", err)
+	} else if desc.Caller != "" {
+		return fmt.Errorf("empty caller must pass through unchanged: %+v", desc)
 	}
 	return nil
 }

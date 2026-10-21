@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -31,6 +32,24 @@ type MsgpackSerializer struct {
 // MessagePackOffset is the 9-byte length header offset for cross-language compatibility.
 // This matches Java's MESSAGE_PACK_OFFSET and C++'s XLANG_HEADER_LEN.
 const MessagePackOffset = 9
+
+// newEncoder returns a MessagePack encoder configured for the Go runtime's
+// wire format.
+//
+// Cross-language values are encoded with positional array structs
+// (UseArrayEncodedStructs), so a Go struct matches the C++ runtime's
+// MSGPACK_DEFINE layout, which packs the fields in declaration order as a
+// msgpack array. Without this, a Go struct is encoded as a msgpack map and the
+// C++ worker fails with "msgpack::v1::type_error: std::bad_cast" when it
+// converts the argument to the MSGPACK_DEFINE type. Go-internal types (those
+// with unexported fields, for which IsCrossLanguageType is false) keep the
+// default map encoding.
+func newEncoder(w io.Writer, obj interface{}) *msgpack.Encoder {
+	enc := msgpack.NewEncoder(w)
+	enc.UseCompactInts(true)
+	enc.UseArrayEncodedStructs(IsCrossLanguageType(obj))
+	return enc
+}
 
 // parseLengthHeader parses the 9-byte length header if present.
 // Returns the data slice starting after the header, or the original data if no header.
@@ -103,8 +122,7 @@ func (s *MsgpackSerializer) SetRegistry(registry *ExtensionRegistry) {
 // If ExtensionRegistry is set, uses extension mechanism for language-specific types.
 func (s *MsgpackSerializer) Encode(obj interface{}) ([]byte, error) {
 	var buf bytes.Buffer
-	enc := msgpack.NewEncoder(&buf)
-	enc.UseCompactInts(true)
+	enc := newEncoder(&buf, obj)
 
 	if s.registry != nil {
 		if packer := s.registry.FindPacker(obj); packer != nil {
@@ -181,8 +199,7 @@ func (s *MsgpackSerializer) EncodeToBuffer(obj interface{}, buf *[]byte) error {
 	// Reserve 9 bytes for length header
 	*buf = (*buf)[:MessagePackOffset]
 
-	enc := msgpack.NewEncoder(&byteSliceWriter{buf: buf})
-	enc.UseCompactInts(true)
+	enc := newEncoder(&byteSliceWriter{buf: buf}, obj)
 	startPos := len(*buf)
 
 	if err := enc.Encode(obj); err != nil {

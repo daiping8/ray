@@ -97,6 +97,24 @@ time. Note that the packaging hash gate covers only the raygo/go_runtime.so
 pair — aligning a `userfuncs.so` plugin with the runtime is a manual deployment
 step (keep the plugin and the runtime built from the same tree).
 
+Against a cluster whose image was built from a different tree, the runtime
+must also be synced into every node, and a synced runtime is not durable: a
+container restart restores the image's copy, so a stale `go_runtime.so` comes
+back and every Go driver then dies with `plugin was built with a different
+version of package ...`. Re-run the sync after any pod restart, and bake the
+runtime into the image for a durable deployment.
+
+```bash
+# Sync the packaged runtime into a running node (repeat per node).
+bazel run //go:gen_ray_go_pkg
+kubectl -n <ns> cp python/ray/go/lib/go_runtime.so <pod>:/tmp/go_runtime.so.new
+kubectl -n <ns> cp python/ray/go/cmd/raygo <pod>:/tmp/raygo.new
+kubectl -n <ns> exec <pod> -- sh -c 'R=/path/to/site-packages/ray; \
+  cp /tmp/go_runtime.so.new $R/go/lib/go_runtime.so; \
+  cp /tmp/raygo.new $R/go/cmd/raygo; \
+  chmod 755 $R/go/lib/go_runtime.so $R/go/cmd/raygo'
+```
+
 ## Prerequisites
 
 1. A local Ray cluster (`ray start --head`) — required for driver mode.
@@ -198,6 +216,19 @@ Four rows: three dependency-bound drivers submitted as Ray jobs, plus the standa
 | `driver_call_cpp` | driver mode | the C++ worker `bazel-bin/go/e2e/driver_call_cpp/cpp_xlang_worker.so`, staged in, and a C++ worker running to register the matching functions |
 | `runtime_env_driver` | driver mode | the newer runtime (RuntimeEnv API + autoscaler status report) in the packaged `ray/go` |
 | `test_python_call_go_simple` | direct | Python -> Go lane, run on the head node (`--ray-address`), not through `ray job submit` |
+
+### The direct lane must run on a Ray node
+
+The `direct` row runs its Python script with the local interpreter. That is correct only when the fleet runs on the same machine as the cluster head (the Phase 1 layout), because the script calls `ray.init(address=...)` and Ray's Python client accepts a GCS address (`<ip>:<port>`) or a Ray Client URL (`ray://`), not the dashboard HTTP URL that `ray job submit` takes. Against a remote cluster reached through a dashboard URL, pass the lane a GCS address that is routable from where it runs, or run it on a Ray node:
+
+```bash
+# On the head node, the local cluster needs no address at all:
+kubectl -n <ns> cp go/e2e/test_python_call_go_simple.py <head-pod>:/tmp/lane/
+kubectl -n <ns> cp bazel-bin/go/e2e/userfuncs/plugin/userfuncs.so <head-pod>:/tmp/lane/userfuncs.so
+kubectl -n <ns> exec <head-pod> -- sh -c 'cd /tmp/lane && python3 test_python_call_go_simple.py'
+```
+
+The node that runs the lane also needs the tree's Python binding: `ray.cross_language.go_function` and the `Language.GO` / `GoFunctionDescriptor` support it uses live in `python/ray/cross_language.py` and `python/ray/_raylet.so`, so a ray installed from an older tree fails at import. Rebuild `bazel build //:python/ray/_raylet.so` and sync the resulting `_raylet.so` (plus `cross_language.py`) into that ray.
 
 Phase 2 is followed by a load-tolerance re-run with the deadline scale raised, to show the polling drivers tolerate a loaded cluster. The six drivers that honour `RAY_GO_E2E_TIMEOUT_SCALE` are `actor_integration_driver`, `driver_app`, `driver_call_cpp`, `driver_gcs_client`, `driver_placement_group` and `runtime_context_driver`; five of them are Phase 1 rows and `driver_call_cpp` is a Phase 2 row, so the scaled re-run covers both phases. A row that passes only when scaled is the evidence the scale knob works; a row that fails even scaled is a real defect or an over-strict assertion, not a flake.
 

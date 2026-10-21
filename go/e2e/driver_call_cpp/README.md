@@ -28,12 +28,12 @@ Verifies **Go -> C++ calls** and the **C++ function descriptor** surface.
 ### Cross-language struct encoding convention
 
 C++ `MSGPACK_DEFINE(name, age)` packs the struct as a **positional msgpack
-array**. On the Go side `MsgpackSerializer.EncodeToBuffer` enables
-`UseArrayEncodedStructs(true)` for cross-language types (see
-`go/internal/runtime/serializer/msgpack_serializer.go`), so a fully-exported
-struct encodes as an array, matching the C++ layout; Go-internal types with
-only private fields keep map encoding. The decode side accepts both array and
-map automatically.
+array**. On the Go side the serializer's encoder enables
+`UseArrayEncodedStructs(true)` for cross-language types (see `newEncoder` in
+`go/internal/runtime/serializer/msgpack_serializer.go`, used by both `Encode`
+and `EncodeToBuffer`), so a fully-exported struct encodes as an array matching
+the C++ layout; Go-internal types with only private fields keep map encoding.
+The decode side accepts both array and map automatically.
 
 ### Actor factory function name
 

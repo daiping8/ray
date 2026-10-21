@@ -320,15 +320,42 @@ func (r *Ray) Internal() contract.RuntimeHandle {
 //	    log.Fatal(err)
 //	}
 func (r *Ray) InitializeWithJobConfig(builder *options.JobConfigBuilder) error {
-	jobOpts, err := builder.BuildToJobOptions()
+	jobOpts, err := buildJobOptionsFromBuilder(builder)
 	if err != nil {
-		return fmt.Errorf("failed to build JobConfig: %w", err)
+		return err
 	}
 
 	return r.InitWithOptions(&options.InitializeOptions{
 		WorkerType: options.WorkerTypeDriver,
 		Job:        jobOpts,
 	})
+}
+
+// buildJobOptionsFromBuilder merges the job-injected configuration
+// (runtime_env and metadata from RAY_JOB_CONFIG_JSON_ENV_VAR) into the
+// caller's builder and then builds the resulting JobOptions.
+//
+// The merge mirrors the default path in InitWithOptions: when a job is
+// submitted through the job supervisor (for example, `ray job submit` or the
+// dashboard job API), the job's runtime_env - including its working_dir - is
+// delivered to the driver only through RAY_JOB_CONFIG_JSON_ENV_VAR. Ray's core
+// worker derives a driver's task and actor runtime_env from the job config, so
+// a driver that does not merge it in leaves every task and actor worker on
+// other nodes without the job's working_dir or env_vars. Merging here keeps the
+// explicit-job-config initialization path consistent with the default path.
+//
+// The merge is additive and conflict-checked by JobConfigBuilder.MergeFromEnv;
+// the caller's explicit settings win on conflicts unless
+// RAY_OVERRIDE_JOB_RUNTIME_ENV=1 is required to permit them.
+func buildJobOptionsFromBuilder(builder *options.JobConfigBuilder) (options.JobOptions, error) {
+	if err := builder.MergeFromEnv(); err != nil {
+		return options.JobOptions{}, fmt.Errorf("failed to merge job config from environment: %w", err)
+	}
+	jobOpts, err := builder.BuildToJobOptions()
+	if err != nil {
+		return options.JobOptions{}, fmt.Errorf("failed to build JobConfig: %w", err)
+	}
+	return jobOpts, nil
 }
 
 // InitializeWithJobConfigAndNetwork initializes Ray with JobConfig and network settings.
@@ -356,9 +383,9 @@ func (r *Ray) InitializeWithJobConfigAndNetwork(
 	builder *options.JobConfigBuilder,
 	network options.NetworkOptions,
 ) error {
-	jobOpts, err := builder.BuildToJobOptions()
+	jobOpts, err := buildJobOptionsFromBuilder(builder)
 	if err != nil {
-		return fmt.Errorf("failed to build JobConfig: %w", err)
+		return err
 	}
 
 	return r.InitWithOptions(&options.InitializeOptions{
