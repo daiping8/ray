@@ -134,23 +134,26 @@ func (r *Ray) Put(obj interface{}) (*ObjectRef[interface{}], error) {
 // PutWithOwner puts an object into the object store with a specific owner.
 // Consistent with Java's Ray.put(obj, owner)
 //
-// A non-nil owner makes the object actor-owned: the owner actor's address is
-// resolved via GCS and passed to the C++ CreateOwnedAndIncrementLocalRef. A nil
-// owner leaves the object owned by the current worker.
+// The owner argument is rejected when non-nil: owned puts (the experimental
+// `_owner` argument to ray.put) were removed upstream in Ray 2.56
+// (ray-project/ray#63520), and this bridge does not forward an owner address to
+// the C++ core worker. A nil owner keeps the object owned by the current worker.
+// Any non-nil owner is rejected before dereferencing, so a typed-nil handle
+// stored in the ActorHandle interface (owner != nil at the interface level)
+// returns the removal error instead of panicking.
 //
 // Parameters:
 //   - obj: the object to put
-//   - owner: the owner actor handle (nil for a self-owned object)
+//   - owner: must be nil; a non-nil owner is rejected
 //
 // Returns:
 //   - *ObjectRef[interface{}]: a reference to the put object
 //   - error: any error encountered during the put operation
 func (r *Ray) PutWithOwner(obj interface{}, owner ActorHandle) (*ObjectRef[interface{}], error) {
-	var handle *ActorHandleImpl[interface{}]
 	if owner != nil {
-		handle = NewActorHandleImpl[interface{}](owner.ID())
+		return nil, errOwnedPutRemoved
 	}
-	return PutWithOwner(obj, handle)
+	return PutWithOwner(obj, nil)
 }
 
 // Get fetches an object from the object store.

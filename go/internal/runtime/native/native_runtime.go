@@ -50,7 +50,6 @@ import (
 	"github.com/ray-project/ray/go/pkg/runtime/function"
 	"github.com/ray-project/ray/go/pkg/runtime/object"
 	"github.com/ray-project/ray/go/pkg/runtime/submitter"
-	"github.com/ray-project/ray/go/proto"
 )
 
 var logger = log.WithName("native")
@@ -92,16 +91,6 @@ type NativeRuntime struct {
 	functionManager *function.FunctionManager
 	resourceManager resource.ResourceManager
 	actorManager    *actor.ActorManager
-	// ownerAddressCache caches each owner actor's rpc.Address by ActorID so a
-	// Put-with-owner does not re-query GCS on every call. An owner actor's
-	// address is stable for the lifetime of the actor (Java caches it when the
-	// ActorHandle is created), so the cache is safe and is keyed per runtime.
-	ownerAddressCache sync.Map // map[ids.ActorID]*proto.Address
-	// ownerAddressResolveLocks holds one lock per owner actor so concurrent
-	// first-time resolutions for the SAME actor share a single GCS RPC
-	// (single-flight on cache miss) without a global lock serializing
-	// unrelated actors' resolutions.
-	ownerAddressResolveLocks sync.Map // map[ids.ActorID]*sync.Mutex
 }
 
 // NewNativeRuntime creates a new NativeRuntime instance.
@@ -182,19 +171,11 @@ func (nr *NativeRuntime) Start() error {
 	// the teardown. Constructing the store without it leaves the lock nil and
 	// RemoveLocalReference dereferences a nil pointer. RemoveLocalReference is the
 	// only object-store CGO call gated by this lock; Put/Get/Wait/Delete and
-	// AddLocalReference are not covered by it.
-	//
-	// The owner-address resolver looks up the owner actor's rpc.Address via GCS,
-	// mirroring Java's GcsClient.getActorAddress (ActorTableData.address), so a
-	// Put-with-owner can pass the owner address to the C++ side. It is bound to
-	// this runtime's real GCS lookup, which stays lazily initialized.
-	nativeStore := objectstore.NewNativeObjectStore(&nr.shutdownLock, nr.newOwnerAddressResolver(func(ctx context.Context, actorID ids.ActorID) (*proto.ActorTableData, error) {
-		gcsClient, err := nr.GetGcsClient()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get GCS client: %w", err)
-		}
-		return gcsClient.GetActorInfo(ctx, actorID)
-	}))
+	// AddLocalReference are not covered by it. No owner-address resolver is
+	// injected: owned puts (the `_owner` argument to ray.put) were removed
+	// upstream in Ray 2.56 (ray-project/ray#63520), and the C++ core worker no
+	// longer accepts an owner address.
+	nativeStore := objectstore.NewNativeObjectStore(&nr.shutdownLock, nil)
 	nr.objectStore = nativeStore
 
 	// Register the Go task executor callback with C++.
@@ -203,41 +184,6 @@ func (nr *NativeRuntime) Start() error {
 
 	logger.Info("Native runtime started successfully")
 	return nil
-}
-
-// newOwnerAddressResolver returns the owner-address resolver injected into the
-// native object store. getActorInfo is a parameter rather than a direct GCS
-// call so the cache and single-flight behaviour can be tested without a GCS.
-//
-// Resolved addresses are cached by ActorID: an owner actor's address is stable,
-// so a Put-with-owner hits the cache instead of a GCS RPC on every call. On a
-// cache miss a per-actor lock makes concurrent first-time resolutions of the
-// same actor share a single RPC without serializing unrelated actors.
-func (nr *NativeRuntime) newOwnerAddressResolver(getActorInfo func(context.Context, ids.ActorID) (*proto.ActorTableData, error)) func(context.Context, ids.ActorID) (*proto.Address, error) {
-	return func(ctx context.Context, actorID ids.ActorID) (*proto.Address, error) {
-		if cached, ok := nr.ownerAddressCache.Load(actorID); ok {
-			return cached.(*proto.Address), nil
-		}
-		// Per-actor single-flight: concurrent first-time resolutions for the
-		// same actor share one GCS RPC; different actors do not block each
-		// other.
-		mu, _ := nr.ownerAddressResolveLocks.LoadOrStore(actorID, &sync.Mutex{})
-		actorMu := mu.(*sync.Mutex)
-		actorMu.Lock()
-		defer actorMu.Unlock()
-		if cached, ok := nr.ownerAddressCache.Load(actorID); ok {
-			return cached.(*proto.Address), nil
-		}
-		actorInfo, err := getActorInfo(ctx, actorID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get actor info for owner %s: %w", actorID.Hex(), err)
-		}
-		if actorInfo == nil || actorInfo.Address == nil {
-			return nil, fmt.Errorf("owner actor %s has no address", actorID.Hex())
-		}
-		nr.ownerAddressCache.Store(actorID, actorInfo.Address)
-		return actorInfo.Address, nil
-	}
 }
 
 // executeTask is the task execution callback registered with C++.

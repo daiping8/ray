@@ -53,7 +53,6 @@ go_test(
     name = "native_test",
     srcs = [
         "native_runtime_test.go",
-        "owner_address_resolver_test.go",
         "runtime_context_impl_test.go",
         "runtime_context_test.go",
     ],

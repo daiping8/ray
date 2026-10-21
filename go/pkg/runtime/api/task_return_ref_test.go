@@ -299,11 +299,12 @@ func TestTaskReturnRefSingleRemove(t *testing.T) {
 	}
 }
 
-// TestPutForwardsOwnerActorID verifies that api.Put forwards a non-nil owner
-// actor to PutRawWithOwner (owner address resolved via GCS and passed to C++
-// CreateOwnedAndIncrementLocalRef, mirroring Java's putRaw(obj, ownerActorId)),
-// and that a nil owner falls back to the plain PutRaw path (C++ defaults the
-// owner to the current worker's address).
+// TestPutForwardsOwnerActorID verifies that api.Put rejects a non-nil owner
+// with the owned-put removal error (the experimental `_owner` argument to
+// ray.put was removed upstream in Ray 2.56, ray-project/ray#63520, and this
+// bridge does not forward an owner address to the C++ core worker), and that a
+// nil owner falls back to the plain PutRaw path (the current worker owns the
+// object).
 func TestPutForwardsOwnerActorID(t *testing.T) {
 	store, _ := newRecordingHandle()
 	defer clearHandle()
@@ -320,33 +321,57 @@ func TestPutForwardsOwnerActorID(t *testing.T) {
 	}
 	owner := NewActorHandleImpl[int](ownerID)
 
-	// Owner present: must route through PutRawWithOwner with the exact actor ID.
-	if _, err := Put(42, owner); err != nil {
-		t.Fatalf("Put with owner failed: %v", err)
+	// Owner present: must be rejected with the removal error, and the store
+	// must not see any put (reject before serializing or storing).
+	if _, err := Put(42, owner); err == nil {
+		t.Fatal("Put with owner: expected an error, got nil")
+	} else if err.Error() != errOwnedPutRemoved.Error() {
+		t.Fatalf("Put with owner: got error %q, want %q", err, errOwnedPutRemoved)
 	}
-	if store.putRawCalls != 0 || store.putRawOwnerCalls != 1 {
-		t.Fatalf("Put with owner: putRawCalls=%d putRawOwnerCalls=%d; want 0/1",
+	if store.putRawCalls != 0 || store.putRawOwnerCalls != 0 {
+		t.Fatalf("Put with owner: putRawCalls=%d putRawOwnerCalls=%d; want 0/0 (rejected before the store)",
 			store.putRawCalls, store.putRawOwnerCalls)
-	}
-	if store.lastOwner == nil || *store.lastOwner != ownerID {
-		t.Fatalf("Put with owner: forwarded owner %v, want %v", store.lastOwner, ownerID)
 	}
 
 	// Nil owner: must route through the plain PutRaw path.
 	if _, err := Put(43, nil); err != nil {
 		t.Fatalf("Put without owner failed: %v", err)
 	}
-	if store.putRawCalls != 1 || store.putRawOwnerCalls != 1 {
-		t.Fatalf("Put without owner: putRawCalls=%d putRawOwnerCalls=%d; want 1/1",
+	if store.putRawCalls != 1 || store.putRawOwnerCalls != 0 {
+		t.Fatalf("Put without owner: putRawCalls=%d putRawOwnerCalls=%d; want 1/0",
 			store.putRawCalls, store.putRawOwnerCalls)
 	}
 }
 
-// TestRayPutWithOwnerForwardsOwnerActorID pins the public Ray.PutWithOwner entry
-// point to the same routing as the package-level Put: a non-nil owner must
-// reach PutRawWithOwner with the owner's actor ID, so the object is actor-owned
-// rather than silently worker-owned.
-func TestRayPutWithOwnerForwardsOwnerActorID(t *testing.T) {
+// TestPutTypedNilOwnerBehavesLikeNoOwner verifies that a nil *ActorHandleImpl
+// passed as the owner does not panic. At the package level a typed nil is
+// indistinguishable from "no owner" (a nil concrete pointer), so Put routes it
+// through the plain PutRaw path exactly like a nil owner; the owner rejection
+// that closes the typed-nil panic path lives in the interface entry point
+// Ray.PutWithOwner, covered by TestRayPutWithOwnerRejectsOwner.
+func TestPutTypedNilOwnerBehavesLikeNoOwner(t *testing.T) {
+	store, _ := newRecordingHandle()
+	defer clearHandle()
+
+	object.SetSerializer(&putTestSerializer{})
+	defer object.SetSerializer(nil)
+
+	var owner *ActorHandleImpl[int]
+	if _, err := Put(44, owner); err != nil {
+		t.Fatalf("Put with a typed-nil owner failed: %v", err)
+	}
+	if store.putRawCalls != 1 || store.putRawOwnerCalls != 0 {
+		t.Fatalf("Put with typed-nil owner: putRawCalls=%d putRawOwnerCalls=%d; want 1/0",
+			store.putRawCalls, store.putRawOwnerCalls)
+	}
+}
+
+// TestRayPutWithOwnerRejectsOwner pins the public Ray.PutWithOwner entry point:
+// a non-nil owner is rejected with the removal error, a non-nil owner holding a
+// nil *ActorHandleImpl (a typed nil stored in the ActorHandle interface) is
+// also rejected instead of panicking, and a nil owner routes to the plain
+// PutRaw path.
+func TestRayPutWithOwnerRejectsOwner(t *testing.T) {
 	store, _ := newRecordingHandle()
 	defer clearHandle()
 
@@ -360,23 +385,38 @@ func TestRayPutWithOwnerForwardsOwnerActorID(t *testing.T) {
 	owner := NewActorHandleImpl[int](ownerID)
 
 	ray := &Ray{}
-	if _, err := ray.PutWithOwner(7, owner); err != nil {
-		t.Fatalf("Ray.PutWithOwner with owner failed: %v", err)
+	if _, err := ray.PutWithOwner(7, owner); err == nil {
+		t.Fatal("Ray.PutWithOwner with owner: expected an error, got nil")
+	} else if err.Error() != errOwnedPutRemoved.Error() {
+		t.Fatalf("Ray.PutWithOwner with owner: got error %q, want %q", err, errOwnedPutRemoved)
 	}
-	if store.putRawCalls != 0 || store.putRawOwnerCalls != 1 {
-		t.Fatalf("Ray.PutWithOwner with owner: putRawCalls=%d putRawOwnerCalls=%d; want 0/1",
+	if store.putRawCalls != 0 || store.putRawOwnerCalls != 0 {
+		t.Fatalf("Ray.PutWithOwner with owner: putRawCalls=%d putRawOwnerCalls=%d; want 0/0 (rejected before the store)",
 			store.putRawCalls, store.putRawOwnerCalls)
 	}
-	if store.lastOwner == nil || *store.lastOwner != ownerID {
-		t.Fatalf("Ray.PutWithOwner with owner: forwarded owner %v, want %v", store.lastOwner, ownerID)
+
+	// Typed-nil in the ActorHandle interface: the old code panicked here
+	// (NewActorHandleImpl(nil ID) is fine, but the type assertion on a nil
+	// *ActorHandleImpl must not panic); the rejection path must return the same
+	// removal error.
+	var typedNil *ActorHandleImpl[interface{}]
+	var typedNilOwner ActorHandle = typedNil
+	if _, err := ray.PutWithOwner(9, typedNilOwner); err == nil {
+		t.Fatal("Ray.PutWithOwner with typed-nil owner: expected an error, got nil")
+	} else if err.Error() != errOwnedPutRemoved.Error() {
+		t.Fatalf("Ray.PutWithOwner with typed-nil owner: got error %q, want %q", err, errOwnedPutRemoved)
+	}
+	if store.putRawCalls != 0 || store.putRawOwnerCalls != 0 {
+		t.Fatalf("Ray.PutWithOwner with typed-nil owner: putRawCalls=%d putRawOwnerCalls=%d; want 0/0 (rejected before the store)",
+			store.putRawCalls, store.putRawOwnerCalls)
 	}
 
 	// Nil owner: must route through the plain PutRaw path.
 	if _, err := ray.PutWithOwner(8, nil); err != nil {
 		t.Fatalf("Ray.PutWithOwner without owner failed: %v", err)
 	}
-	if store.putRawCalls != 1 || store.putRawOwnerCalls != 1 {
-		t.Fatalf("Ray.PutWithOwner without owner: putRawCalls=%d putRawOwnerCalls=%d; want 1/1",
+	if store.putRawCalls != 1 || store.putRawOwnerCalls != 0 {
+		t.Fatalf("Ray.PutWithOwner without owner: putRawCalls=%d putRawOwnerCalls=%d; want 1/0",
 			store.putRawCalls, store.putRawOwnerCalls)
 	}
 }
