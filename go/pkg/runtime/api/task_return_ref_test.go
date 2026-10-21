@@ -24,6 +24,7 @@ import (
 	"github.com/ray-project/ray/go/pkg/runtime/function"
 	"github.com/ray-project/ray/go/pkg/runtime/object"
 	"github.com/ray-project/ray/go/pkg/runtime/submitter"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 // This file guards the task-return double-reference contract: task return
@@ -54,6 +55,13 @@ type recordingObjectStore struct {
 	mu      sync.Mutex
 	added   map[string]int
 	removed map[string]int
+
+	// putRawCalls and putRawOwnerCalls count the Put paths taken so a test can
+	// pin which one api.Put routed to. lastOwner records the actor ID forwarded
+	// to PutRawWithOwner so the exact owner can be asserted.
+	putRawCalls      int
+	putRawOwnerCalls int
+	lastOwner        *ids.ActorID
 
 	deleteCalls []deleteCall
 	// deleteErr, when non-nil, is returned by Delete to simulate a store failure.
@@ -100,10 +108,23 @@ func (s *recordingObjectStore) lastDeleteCall() deleteCall {
 }
 
 func (s *recordingObjectStore) PutRaw(obj *object.NativeRayObject) (*ids.ObjectID, error) {
-	return nil, nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.putRawCalls++
+	oid := ids.NewObjectID()
+	return &oid, nil
 }
 func (s *recordingObjectStore) PutRawWithOwner(obj *object.NativeRayObject, ownerActorID *ids.ActorID) (*ids.ObjectID, error) {
-	return nil, nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.putRawOwnerCalls++
+	// Copy the actor ID so the recorded value survives the caller's pointer.
+	if ownerActorID != nil {
+		id := *ownerActorID
+		s.lastOwner = &id
+	}
+	oid := ids.NewObjectID()
+	return &oid, nil
 }
 func (s *recordingObjectStore) PutRawWithID(obj *object.NativeRayObject, objectID *ids.ObjectID) error {
 	return nil
@@ -277,3 +298,115 @@ func TestTaskReturnRefSingleRemove(t *testing.T) {
 		t.Fatalf("Release() removed %d local reference(s); expected exactly 1", got)
 	}
 }
+
+// TestPutForwardsOwnerActorID verifies that api.Put forwards a non-nil owner
+// actor to PutRawWithOwner (owner address resolved via GCS and passed to C++
+// CreateOwnedAndIncrementLocalRef, mirroring Java's putRaw(obj, ownerActorId)),
+// and that a nil owner falls back to the plain PutRaw path (C++ defaults the
+// owner to the current worker's address).
+func TestPutForwardsOwnerActorID(t *testing.T) {
+	store, _ := newRecordingHandle()
+	defer clearHandle()
+
+	// Put serializes via the global serializer, which is normally registered by
+	// the runtime. Install a minimal serializer for this test and restore the
+	// nil default afterwards so sibling tests are unaffected.
+	object.SetSerializer(&putTestSerializer{})
+	defer object.SetSerializer(nil)
+
+	ownerID, err := ids.ActorIDFromHex("0123456789abcdef0123456789abcdef")
+	if err != nil {
+		t.Fatalf("ActorIDFromHex failed: %v", err)
+	}
+	owner := NewActorHandleImpl[int](ownerID)
+
+	// Owner present: must route through PutRawWithOwner with the exact actor ID.
+	if _, err := Put(42, owner); err != nil {
+		t.Fatalf("Put with owner failed: %v", err)
+	}
+	if store.putRawCalls != 0 || store.putRawOwnerCalls != 1 {
+		t.Fatalf("Put with owner: putRawCalls=%d putRawOwnerCalls=%d; want 0/1",
+			store.putRawCalls, store.putRawOwnerCalls)
+	}
+	if store.lastOwner == nil || *store.lastOwner != ownerID {
+		t.Fatalf("Put with owner: forwarded owner %v, want %v", store.lastOwner, ownerID)
+	}
+
+	// Nil owner: must route through the plain PutRaw path.
+	if _, err := Put(43, nil); err != nil {
+		t.Fatalf("Put without owner failed: %v", err)
+	}
+	if store.putRawCalls != 1 || store.putRawOwnerCalls != 1 {
+		t.Fatalf("Put without owner: putRawCalls=%d putRawOwnerCalls=%d; want 1/1",
+			store.putRawCalls, store.putRawOwnerCalls)
+	}
+}
+
+// TestRayPutWithOwnerForwardsOwnerActorID pins the public Ray.PutWithOwner entry
+// point to the same routing as the package-level Put: a non-nil owner must
+// reach PutRawWithOwner with the owner's actor ID, so the object is actor-owned
+// rather than silently worker-owned.
+func TestRayPutWithOwnerForwardsOwnerActorID(t *testing.T) {
+	store, _ := newRecordingHandle()
+	defer clearHandle()
+
+	object.SetSerializer(&putTestSerializer{})
+	defer object.SetSerializer(nil)
+
+	ownerID, err := ids.ActorIDFromHex("fedcba9876543210fedcba9876543210")
+	if err != nil {
+		t.Fatalf("ActorIDFromHex failed: %v", err)
+	}
+	owner := NewActorHandleImpl[int](ownerID)
+
+	ray := &Ray{}
+	if _, err := ray.PutWithOwner(7, owner); err != nil {
+		t.Fatalf("Ray.PutWithOwner with owner failed: %v", err)
+	}
+	if store.putRawCalls != 0 || store.putRawOwnerCalls != 1 {
+		t.Fatalf("Ray.PutWithOwner with owner: putRawCalls=%d putRawOwnerCalls=%d; want 0/1",
+			store.putRawCalls, store.putRawOwnerCalls)
+	}
+	if store.lastOwner == nil || *store.lastOwner != ownerID {
+		t.Fatalf("Ray.PutWithOwner with owner: forwarded owner %v, want %v", store.lastOwner, ownerID)
+	}
+
+	// Nil owner: must route through the plain PutRaw path.
+	if _, err := ray.PutWithOwner(8, nil); err != nil {
+		t.Fatalf("Ray.PutWithOwner without owner failed: %v", err)
+	}
+	if store.putRawCalls != 1 || store.putRawOwnerCalls != 1 {
+		t.Fatalf("Ray.PutWithOwner without owner: putRawCalls=%d putRawOwnerCalls=%d; want 1/1",
+			store.putRawCalls, store.putRawOwnerCalls)
+	}
+}
+
+// putTestSerializer is a minimal object.Serializer for tests that drive api.Put
+// without a running runtime. It encodes the value as its own msgpack bytes so
+// Put can build a NativeRayObject without touching the real serializer package.
+type putTestSerializer struct{}
+
+func (s *putTestSerializer) Serialize(obj interface{}) (*object.NativeRayObject, error) {
+	// Encode with vmihailenco/msgpack so the payload is a valid RAW object; this
+	// test only checks routing, so a trivial int encoding is fine.
+	data, err := msgpack.Marshal(obj)
+	if err != nil {
+		return nil, err
+	}
+	return &object.NativeRayObject{Data: data, Metadata: []byte("RAW")}, nil
+}
+func (s *putTestSerializer) Deserialize(nativeObj *object.NativeRayObject, objectID *ids.ObjectID, objectType string) (interface{}, error) {
+	return nil, nil
+}
+func (s *putTestSerializer) DeserializeTo(nativeObj *object.NativeRayObject, target interface{}) error {
+	return nil
+}
+func (s *putTestSerializer) AddContainedObjectID(objectID ids.ObjectID)    {}
+func (s *putTestSerializer) GetAndClearContainedObjectIDs() []ids.ObjectID { return nil }
+func (s *putTestSerializer) SetOuterObjectID(objectID ids.ObjectID)        {}
+func (s *putTestSerializer) GetOuterObjectID() ids.ObjectID                { return ids.NilObjectID() }
+func (s *putTestSerializer) ResetOuterObjectID()                           {}
+func (s *putTestSerializer) EstimateBufferSize(obj interface{}) int        { return 0 }
+func (s *putTestSerializer) GetBuffer(size int) []byte                     { return nil }
+func (s *putTestSerializer) PutBuffer(buf []byte)                          {}
+func (s *putTestSerializer) IsCrossLanguageType(obj interface{}) bool      { return false }

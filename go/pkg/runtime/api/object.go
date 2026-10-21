@@ -33,9 +33,15 @@ import (
 
 // Put puts an object into the object store.
 //
+// A non-nil owner makes the object actor-owned: the owner actor's address is
+// resolved via GCS and passed to the C++ CreateOwnedAndIncrementLocalRef,
+// mirroring Java's putRaw(obj, ownerActorId). A nil owner leaves the object
+// owned by the current worker (C++ defaults owner_address to the worker's own
+// address).
+//
 // Parameters:
 //   - value: the value to put
-//   - owner: the owner of the object (optional, can be nil)
+//   - owner: the owner of the object (nil for a self-owned object)
 //
 // Returns:
 //   - *ObjectRef[T]: a reference to the put object
@@ -67,12 +73,21 @@ func Put[T any](value T, owner *ActorHandleImpl[T]) (*ObjectRef[T], error) {
 	// so the Go-side buffer is no longer needed once PutRaw returns.
 	defer func() { _ = nativeObj.Close() }()
 
-	// Put the serialized object into object store. PutRaw derives the ObjectID
-	// in the core worker (CreateOwnedAndIncrementLocalRef) and registers
-	// ownership, so no Go-side ObjectID generation is required. The single local
-	// reference is registered by the C++ side and removed by the ObjectRef
-	// finalizer below.
-	putObjectID, err := objectStore.PutRaw(nativeObj)
+	// Put the serialized object into object store. When an owner actor is given,
+	// pass its actor ID so the object is owned by that actor (owner address is
+	// resolved via GCS and forwarded to C++ CreateOwnedAndIncrementLocalRef),
+	// mirroring Java's putRaw(obj, ownerActorId). With no owner, the core worker
+	// derives the ObjectID and the current worker owns the object (C++ defaults
+	// owner_address to the worker's own address), so no Go-side ObjectID
+	// generation is required. The single local reference is registered by the
+	// C++ side and removed by the ObjectRef finalizer below.
+	var putObjectID *ids.ObjectID
+	if owner != nil {
+		actorID := owner.ID()
+		putObjectID, err = objectStore.PutRawWithOwner(nativeObj, &actorID)
+	} else {
+		putObjectID, err = objectStore.PutRaw(nativeObj)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to put object: %w", err)
 	}
@@ -109,22 +124,20 @@ func Put[T any](value T, owner *ActorHandleImpl[T]) (*ObjectRef[T], error) {
 
 // PutWithOwner puts an object into the object store with a specific owner.
 //
-// Note: owned-object registration is not yet wired through the CGO object
-// store bridge, so a non-nil owner is rejected rather than silently dropped.
-// The object behaves as a regular (self-owned) object.
+// A non-nil owner makes the object actor-owned: the owner actor's address is
+// resolved via GCS and passed to the C++ CreateOwnedAndIncrementLocalRef,
+// mirroring Java's putRaw(obj, ownerActorId). A nil owner leaves the object
+// owned by the current worker.
 //
 // Parameters:
 //   - value: the value to put
-//   - owner: the owner of the object (must be nil for now)
+//   - owner: the owner of the object (nil for a self-owned object)
 //
 // Returns:
 //   - *ObjectRef[T]: a reference to the put object
 //   - error: any error encountered during the put operation
 func PutWithOwner[T any](value T, owner *ActorHandleImpl[T]) (*ObjectRef[T], error) {
-	if owner != nil {
-		return nil, fmt.Errorf("PutWithOwner: owned-object registration is not supported yet; owner must be nil")
-	}
-	return Put(value, nil)
+	return Put(value, owner)
 }
 
 // Get fetches the object from the object store.

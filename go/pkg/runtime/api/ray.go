@@ -134,23 +134,23 @@ func (r *Ray) Put(obj interface{}) (*ObjectRef[interface{}], error) {
 // PutWithOwner puts an object into the object store with a specific owner.
 // Consistent with Java's Ray.put(obj, owner)
 //
-// Note: owned-object registration is not yet wired through the CGO object
-// store bridge, so a non-nil owner is rejected rather than silently dropped.
+// A non-nil owner makes the object actor-owned: the owner actor's address is
+// resolved via GCS and passed to the C++ CreateOwnedAndIncrementLocalRef. A nil
+// owner leaves the object owned by the current worker.
 //
 // Parameters:
 //   - obj: the object to put
-//   - owner: the owner actor handle (must be nil for now)
+//   - owner: the owner actor handle (nil for a self-owned object)
 //
 // Returns:
-//   - *ObjectRef[T]: a reference to the put object
+//   - *ObjectRef[interface{}]: a reference to the put object
 //   - error: any error encountered during the put operation
 func (r *Ray) PutWithOwner(obj interface{}, owner ActorHandle) (*ObjectRef[interface{}], error) {
+	var handle *ActorHandleImpl[interface{}]
 	if owner != nil {
-		return nil, fmt.Errorf("PutWithOwner: owned-object registration is not supported yet; owner must be nil")
+		handle = NewActorHandleImpl[interface{}](owner.ID())
 	}
-	// Note: Type assertion would be needed here, which is not type-safe.
-	// For type-safe operations, use api.PutWithOwner(obj, owner) directly.
-	return Put(obj, nil)
+	return PutWithOwner(obj, handle)
 }
 
 // Get fetches an object from the object store.
