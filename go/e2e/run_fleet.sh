@@ -25,15 +25,20 @@
 # Exit status: 0 only when every selected driver passed.
 #
 # The runner rebuilds //go/e2e/... and //go:ray_go_pkg_zip in the same
-# invocation before staging anything, so no artifact can come from an earlier
-# tree. Each driver is staged into its own job directory together with the
-# userfuncs plugin and any cross-language extra, submitted with `ray job
-# submit`, and compared against the criterion its own source defines. The
-# drivers do not report uniformly, so the criterion has three tiers: count
-# equality against the driver-mode test count for a no-argument row whose source
-# carries the "=== Test... PASSED ===" convention; presence of a marker the
-# source itself declares (that convention, "✓", "✅" or "passed") for every
-# other row; and exit code alone where the source declares no marker at all.
+# invocation before staging anything, so no staged artifact can come from an
+# earlier tree. The raygo/go_runtime.so pair the drivers and workers actually
+# load are the copies already synced into the environment (or pinned through
+# RAY_GO_RUNTIME_PATH), not the ones the build just produced, so after the build
+# the runner also compares that pair against the just-built package and fails
+# with the remedy when they differ. Each driver is staged into its own job
+# directory together with the userfuncs plugin and any cross-language extra,
+# submitted with `ray job submit`, and compared against the criterion its own
+# source defines. The drivers do not report uniformly, so the criterion has
+# three tiers: count equality against the driver-mode test count for a
+# no-argument row whose source carries the "=== Test... PASSED ===" convention;
+# presence of a marker the source itself declares (that convention, "✓", "✅" or
+# "passed") for every other row; and exit code alone where the source declares
+# no marker at all.
 #
 # Environment knobs read by the drivers (export them before invoking the runner):
 #   RAY_GO_E2E_TIMEOUT_SCALE  poll-deadline scale for the drivers that poll
@@ -107,7 +112,11 @@ warn() {
 }
 
 usage() {
-  sed -n '3,38p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  # Print the leading comment block (from the first header line to the last
+  # consecutive "#" line) so the range tracks the header instead of a hardcoded
+  # line count that drifts as the header grows.
+  awk 'NR >= 3 { if ($0 !~ /^#/) exit; print }' "${BASH_SOURCE[0]}" \
+    | sed 's/^# \{0,1\}//'
 }
 
 parse_args() {
@@ -161,6 +170,28 @@ probe_dashboard() {   # $1=address (http:// or https://)
   return 1
 }
 
+# python_ray_go_dir prints the ray/go directory of the ray the environment
+# imports, or returns non-zero when ray cannot be imported.
+python_ray_go_dir() {
+  python3 -c 'import ray, os; print(os.path.join(os.path.dirname(ray.__file__), "go"))' 2>/dev/null
+}
+
+# direct_row_selected: true when the current phase and selection include a row
+# that runs directly on the head node (the standalone Python lane), whose
+# ray.init cannot take the dashboard URL that `ray job submit` uses.
+direct_row_selected() {
+  local row exec_ phase driver extra args want
+  for row in "${DRIVER_TABLE[@]}"; do
+    IFS='|' read -r exec_ phase driver extra args <<<"$row"
+    [[ "$phase" == "$PHASE" && "$exec_" == "direct" ]] || continue
+    [[ ${#SELECTED[@]} -eq 0 ]] && return 0
+    for want in "${SELECTED[@]}"; do
+      [[ "$want" == "$driver" ]] && return 0
+    done
+  done
+  return 1
+}
+
 # Phase 0 preflight: the environment the run depends on. Every failure names the
 # fix, so a broken setup is reported here instead of inside a driver.
 preflight() {
@@ -169,7 +200,16 @@ preflight() {
   # 1. ray CLI available
   command -v ray >/dev/null || die "ray CLI not on PATH; activate the Python env with ray installed"
 
-  # 2. cluster reachable (skipped under --dry-run so the script is verifiable without one)
+  # 2. the direct lane cannot use a dashboard URL: ray.init needs a GCS address
+  #    (host:port) or a ray:// client URL. This is a static check, done before
+  #    any probe, so an impossible selection is rejected instead of submitting a
+  #    row certain to die at ray.init. Skipped under --dry-run, like the probe.
+  if [[ $DRY_RUN -eq 0 ]] && direct_row_selected \
+    && [[ "$CLUSTER_ADDRESS" == http://* || "$CLUSTER_ADDRESS" == https://* ]]; then
+    die "the direct lane needs a GCS address routable from where it runs, or it must run on a Ray node (see README); '${CLUSTER_ADDRESS}' is a dashboard URL"
+  fi
+
+  # 3. cluster reachable (skipped under --dry-run so the script is verifiable without one)
   if [[ $DRY_RUN -eq 0 ]]; then
     if [[ "$CLUSTER_ADDRESS" == http://* || "$CLUSTER_ADDRESS" == https://* ]]; then
       probe_dashboard "$CLUSTER_ADDRESS" \
@@ -179,9 +219,9 @@ preflight() {
     fi
   fi
 
-  # 3. raygo present in the Python env's ray/go
+  # 4. raygo present in the Python env's ray/go
   local pygo=""
-  if ! pygo="$(python3 -c 'import ray, os; print(os.path.join(os.path.dirname(ray.__file__), "go"))' 2>/dev/null)"; then
+  if ! pygo="$(python_ray_go_dir)"; then
     artifact_problem "python3 cannot import ray"
   elif [[ ! -x "$pygo/cmd/raygo" ]]; then
     artifact_problem "raygo missing at $pygo/cmd/raygo; run 'bazel run //go:gen_ray_go_pkg' and sync"
@@ -189,12 +229,41 @@ preflight() {
     artifact_problem "go_runtime.so missing at $pygo/lib/go_runtime.so; same fix as raygo"
   fi
 
-  # 4. plugin built
+  # 5. plugin built
   [[ -f "$PLUGIN" ]] || artifact_problem "plugin missing at $PLUGIN; run 'bazel build //go/e2e/userfuncs/plugin:userfuncs_plugin'"
 }
 
+# verify_runtime_same_tree: the raygo/go_runtime.so pair the environment loads
+# are the copies previously synced into it (or pinned through
+# RAY_GO_RUNTIME_PATH), while the build only rebuilds the package zip and never
+# re-extracts it, so a stale runtime would otherwise run silently. Compare the
+# loaded pair against the just-built package and fail with the remedy when they
+# differ. The zip is the freshly built package (the python/ray/go extraction is
+# a manual step that can lag it), so this is the same-tree reference.
+verify_runtime_same_tree() {
+  local zip="$ROOT/bazel-bin/go/ray_go_pkg.zip" tmp pygo so
+  [[ -f "$zip" ]] \
+    || { artifact_problem "package zip missing at $zip; run 'bazel build //go:ray_go_pkg_zip'"; return 0; }
+  pygo="$(python_ray_go_dir)" || return 0   # preflight already reported this
+  tmp="$(mktemp -d)"
+  python3 -m zipfile -e "$zip" "$tmp" 2>/dev/null \
+    || { rm -rf "$tmp"; artifact_problem "cannot unpack $zip"; return 0; }
+  [[ -f "$tmp/ray/go/cmd/raygo" && -f "$tmp/ray/go/lib/go_runtime.so" ]] \
+    || { rm -rf "$tmp"; artifact_problem "unexpected layout in $zip"; return 0; }
+  # The go_runtime.so the drivers resolve may be pinned outside the env's ray/go.
+  so="${RAY_GO_RUNTIME_PATH:-$pygo/lib/go_runtime.so}"
+  if ! cmp -s "$tmp/ray/go/cmd/raygo" "$pygo/cmd/raygo"; then
+    artifact_problem "raygo at $pygo/cmd/raygo differs from the just-built package; run 'bazel run //go:gen_ray_go_pkg' and sync ray/go/{cmd/raygo,lib/go_runtime.so} into the environment (and every cluster node)"
+  fi
+  if ! cmp -s "$tmp/ray/go/lib/go_runtime.so" "$so"; then
+    artifact_problem "go_runtime.so at $so differs from the just-built package; run 'bazel run //go:gen_ray_go_pkg' and sync ray/go/{cmd/raygo,lib/go_runtime.so} into the environment (and every cluster node), or set RAY_GO_RUNTIME_PATH to the tree's python/ray/go/lib/go_runtime.so"
+  fi
+  rm -rf "$tmp"
+}
+
 # Rebuild the driver fleet and the raygo package in one invocation so nothing
-# staged below can come from an earlier tree.
+# staged below can come from an earlier tree, then verify the runtime the
+# environment loads is that same tree.
 build_tree() {
   if [[ $DRY_RUN -eq 1 ]]; then
     printf 'DRY-RUN  build\n'
@@ -204,6 +273,7 @@ build_tree() {
   printf 'building %s\n' "${BUILD_TARGETS[*]}"
   ( cd "$ROOT" && bazel build "${BUILD_TARGETS[@]}" ) \
     || die "bazel build ${BUILD_TARGETS[*]} failed; the tree and the raygo package were not rebuilt"
+  verify_runtime_same_tree
 }
 
 resolve_extra() {   # $1=driver  $2="src:PATH"|"bin:NAME"  -> prints the source path
@@ -364,16 +434,22 @@ select_rows() {
   done
 }
 
-# check_driver_names rejects a --driver name that is not in the fleet table.
+# check_driver_names rejects a --driver name that is not in the fleet table, and
+# a name that belongs only to the other phase: select_rows would drop it without
+# a word, leaving the run to proceed on the other selections.
 check_driver_names() {
   local want row exec_ phase driver extra args
   for want in "${SELECTED[@]}"; do
-    local found=0
+    local in_table=0 in_phase=0 other_phase=""
     for row in "${DRIVER_TABLE[@]}"; do
       IFS='|' read -r exec_ phase driver extra args <<<"$row"
-      [[ "$driver" == "$want" ]] && { found=1; break; }
+      [[ "$driver" == "$want" ]] || continue
+      in_table=1
+      if [[ "$phase" == "$PHASE" ]]; then in_phase=1; else other_phase="$phase"; fi
     done
-    [[ $found -eq 1 ]] || die "no driver named '$want' in the fleet table"
+    [[ $in_table -eq 1 ]] || die "no driver named '$want' in the fleet table"
+    [[ $in_phase -eq 1 ]] \
+      || die "driver '$want' is a phase $other_phase driver, but phase $PHASE is selected; run it with --phase $other_phase"
   done
 }
 

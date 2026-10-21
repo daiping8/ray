@@ -46,7 +46,7 @@ bazel build //go/e2e/... //go/e2e/userfuncs/plugin:userfuncs_plugin
 bash go/e2e/run_fleet.sh --phase 1
 ```
 
-The runner rebuilds `//go/e2e/...` and `//go:ray_go_pkg_zip` in the same invocation before staging anything, so no artifact can come from an earlier tree. See [Running the fleet from zero to finished](#running-the-fleet-from-zero-to-finished) for the full setup and [Run matrix and pass criterion](#run-matrix-and-pass-criterion) for what each phase runs.
+The runner rebuilds `//go/e2e/...` and `//go:ray_go_pkg_zip` in the same invocation before staging anything, so no staged artifact can come from an earlier tree. The `raygo`/`go_runtime.so` pair the drivers and workers actually load is the copy already synced into the environment (or pinned through `RAY_GO_RUNTIME_PATH`), not the one the build just produced, so after the build the runner also compares that pair against the just-built package and fails with the remedy when they differ. See [Running the fleet from zero to finished](#running-the-fleet-from-zero-to-finished) for the full setup and [Run matrix and pass criterion](#run-matrix-and-pass-criterion) for what each phase runs.
 
 Manual form for a single driver (steps 1 and 2 stage the plugin and the driver into one directory; the plugin step applies to the 9 of the 12 drivers below that consume the userfuncs plugin, the others skip it):
 

@@ -296,6 +296,10 @@ func (r *Ray) Internal() contract.RuntimeHandle {
 // InitializeWithJobConfig initializes Ray with a JobConfig builder.
 // This is a convenience method for setting job-level configuration.
 //
+// The builder is mutated: the job-injected runtime_env and metadata (from
+// RAY_JOB_CONFIG_JSON_ENV_VAR) are merged into it before the job options are
+// built.
+//
 // Parameters:
 //   - builder: JobConfigBuilder to configure job settings
 //
