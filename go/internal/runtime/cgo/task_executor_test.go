@@ -24,6 +24,7 @@ package cgo
 import "C"
 import (
 	"bytes"
+	"fmt"
 	"testing"
 	"unsafe"
 
@@ -31,6 +32,11 @@ import (
 	"github.com/ray-project/ray/go/pkg/ids"
 	"github.com/ray-project/ray/go/pkg/runtime/function"
 	"github.com/ray-project/ray/go/pkg/runtime/object"
+	protogo "github.com/ray-project/ray/go/proto"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/vmihailenco/msgpack/v5"
+	goproto "google.golang.org/protobuf/proto"
 )
 
 // TestConvertCFunctionArgToBase_ValueType tests conversion of value-type arguments
@@ -510,4 +516,58 @@ func TestSetTaskExecutor(t *testing.T) {
 	// We can't directly call taskExecutor as it's not exported, but we can verify
 	// that SetTaskExecutor sets it by checking the behavior in GoExecuteTask tests
 	_ = executorCalled
+}
+
+// TestGoExecuteTask_ErrorWireConvention pins the wire form GoExecuteTask must
+// produce for a task-execution error: metadata is the decimal rpc::ErrorType
+// for TASK_EXECUTION_EXCEPTION ("3") and data is a 9-byte length header plus a
+// msgpack bin wrapping a serialized rpc::RayException carrying the Go error
+// message. This is the cross-language convention the Python driver reads back
+// as CrossLanguageError; it is currently red because the serializer helper that
+// produces this object does not exist yet.
+func TestGoExecuteTask_ErrorWireConvention(t *testing.T) {
+	SetTaskExecutor(func(
+		taskType int,
+		functionDescriptor function.FunctionDescriptor,
+		args []function.FunctionArg,
+		numReturns int,
+		actorID ids.ActorID,
+	) ([]function.SerializedObject, error) {
+		return nil, fmt.Errorf("goAdd exploded: bad arg type")
+	})
+
+	funcDescList := []string{"github.com/example/userfuncs", "userfuncs", "GoAdd", ""}
+	cFuncDesc := make([]*C.char, len(funcDescList))
+	for i, s := range funcDescList {
+		cFuncDesc[i] = C.CString(s)
+		defer C.free(unsafe.Pointer(cFuncDesc[i]))
+	}
+
+	result := GoExecuteTask(
+		C.int(function.LanguageGo),
+		0, // TaskTypeNormalTask
+		&cFuncDesc[0],
+		C.int(len(funcDescList)),
+		nil, // args
+		0,   // argsCount
+		1,   // numReturns
+		nil, // actorIDData
+		0,   // actorIDSize
+	)
+	require.NotNil(t, result)
+	require.Equal(t, 1, int(result.count))
+	objs := unsafe.Slice((*C.CSerializedObject)(result.objects), int(result.count))
+	obj := &objs[0]
+	metadata := C.GoBytes(unsafe.Pointer(obj.metadata), obj.metadata_size)
+	// Numeric convention: decimal rpc::ErrorType TASK_EXECUTION_EXCEPTION.
+	assert.Equal(t, []byte("3"), metadata)
+	data := C.GoBytes(unsafe.Pointer(obj.data), obj.data_size)
+	// 9-byte length header, then a msgpack bin wrapping a RayException PB.
+	require.Greater(t, len(data), 9)
+	var pbBytes []byte
+	require.NoError(t, msgpack.Unmarshal(data[9:], &pbBytes))
+	var exc protogo.RayException
+	require.NoError(t, goproto.Unmarshal(pbBytes, &exc))
+	assert.Equal(t, protogo.Language_GO, exc.GetLanguage())
+	assert.Contains(t, exc.GetFormattedExceptionString(), "goAdd exploded")
 }
