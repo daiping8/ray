@@ -21,9 +21,10 @@ objects_valid in task_receiver.cc, crashing the Go worker. After the fix, the
 padding slot is a cross-language nil object (9-byte length header + msgpack nil,
 XLANG metadata) and ray.get returns None.
 
-NOTE: Part B must run in cluster mode to actually exercise the padding path —
-the local-mode runtime pads returns itself
-(go/internal/runtime/local_mode/task_submitter.go) and would mask the bug.
+NOTE: this lane runs against a real cluster (cluster mode). Ray's
+`ray.init(local_mode=True)` entry is removed in Ray 2.56 (it raises
+RuntimeError), and the padding under test is the cluster worker's — a
+same-process runner would not exercise it either way.
 
 Prerequisites:
   bazel build //go/e2e/userfuncs/plugin:userfuncs_plugin
@@ -31,7 +32,7 @@ Prerequisites:
 
 Usage:
   python go/e2e/test_python_call_go.py --ray-address=localhost:6379
-  python go/e2e/test_python_call_go.py --local-mode
+  python go/e2e/test_python_call_go.py    # connects to the local cluster
 """
 
 import os
@@ -77,10 +78,7 @@ def _code_search_path():
 
 
 def _init_ray(args):
-    if args.local_mode:
-        print("Initializing Ray in local mode...")
-        ray.init(local_mode=True)
-    elif args.ray_address:
+    if args.ray_address:
         print(f"Connecting to Ray at {args.ray_address}...")
         ray.init(
             address=args.ray_address,
@@ -254,11 +252,6 @@ def main():
         description="Test Python calling Go functions and Go actor methods"
     )
     parser.add_argument(
-        "--local-mode",
-        action="store_true",
-        help="Run in local mode without Ray cluster",
-    )
-    parser.add_argument(
         "--ray-address",
         type=str,
         default=None,
@@ -267,14 +260,6 @@ def main():
     args = parser.parse_args()
 
     _init_ray(args)
-
-    if args.local_mode:
-        print(
-            "\nNOTE: running in local mode — the local-mode runtime does the\n"
-            "      padding itself, so Part B (void actor method) will not\n"
-            "      exercise the cluster-mode padding regression path. Use\n"
-            "      --ray-address for a real cluster regression run."
-        )
 
     # Part A: stateless remote functions
     _test_go_functions()

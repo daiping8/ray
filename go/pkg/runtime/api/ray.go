@@ -131,8 +131,8 @@ func (r *Ray) Put(obj interface{}) (*ObjectRef[interface{}], error) {
 	return Put(obj, nil)
 }
 
-// PutWithOwner puts an object into the object store with a specific owner.
-// Consistent with Java's Ray.put(obj, owner)
+// PutWithOwner puts an object into the object store; a non-nil owner is
+// rejected.
 //
 // The owner argument is rejected when non-nil: owned puts (the experimental
 // `_owner` argument to ray.put) were removed upstream in Ray 2.56

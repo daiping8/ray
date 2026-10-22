@@ -122,7 +122,8 @@ func Put[T any](value T, owner *ActorHandleImpl[T]) (*ObjectRef[T], error) {
 	return ref, nil
 }
 
-// PutWithOwner puts an object into the object store with a specific owner.
+// PutWithOwner puts an object into the object store; a non-nil owner is
+// rejected.
 //
 // The owner argument is rejected when non-nil: owned puts (the experimental
 // `_owner` argument to ray.put) were removed upstream in Ray 2.56
