@@ -29,7 +29,6 @@ package cgo
 import "C"
 
 import (
-	"encoding/json"
 	"fmt"
 	"runtime"
 	"strings"
@@ -203,7 +202,6 @@ func convertGoResultToC(results []function.SerializedObject, err error, numRetur
 	if err != nil {
 		taskExecutorLogger.Error(err, "Task execution failed, serializing error to C++")
 
-		// Serialize the error to JSON
 		// Check if error is already TaskExecutionError, otherwise wrap it
 		var rayErr *errors.TaskExecutionError
 		if taskErr, ok := err.(*errors.TaskExecutionError); ok {
@@ -218,12 +216,23 @@ func convertGoResultToC(results []function.SerializedObject, err error, numRetur
 			)
 		}
 
-		// Serialize error to JSON bytes using ToSerializedForm() method
-		serializedErr, marshalErr := json.Marshal(rayErr.ToSerializedForm())
-		if marshalErr != nil {
-			taskExecutorLogger.Error(marshalErr, "Failed to serialize error, using fallback")
-			// Fallback: serialize error message as string
-			serializedErr = []byte(fmt.Sprintf(`{"error_type":"RayTaskException","error_message":"%s"}`, err.Error()))
+		// Serialize the error under the cross-language numeric convention:
+		// metadata is the decimal rpc::ErrorType and the payload is a
+		// msgpack-wrapped RayException protobuf, which Python's integer
+		// error parse reads natively. The previous JSON convention
+		// ({"type":"error"} metadata) was unreadable to Python; the Go
+		// reader keeps accepting it for objects written before this change
+		// (see ErrorObjectFromNative in go/pkg/runtime/object).
+		errorData, dataErr := object.MarshalTaskExecutionErrorData(rayErr.Error())
+		if dataErr != nil {
+			taskExecutorLogger.Error(dataErr, "Failed to marshal task error payload, using fallback message")
+			errorData, dataErr = object.MarshalTaskExecutionErrorData("task execution failed: " + err.Error())
+			if dataErr != nil {
+				// The payload builder cannot fail on a plain string; if it
+				// ever does, return null so C++ surfaces the failure through
+				// its own error path rather than emitting a malformed object.
+				return nil
+			}
 		}
 
 		// Create error objects for all return values
@@ -231,8 +240,8 @@ func convertGoResultToC(results []function.SerializedObject, err error, numRetur
 		errorResults := make([]function.SerializedObject, numReturns)
 		for i := 0; i < numReturns; i++ {
 			errorResults[i] = function.SerializedObject{
-				Data:     serializedErr,
-				Metadata: []byte(`{"type":"error"}`),
+				Data:     errorData,
+				Metadata: object.TaskExecutionErrorMetadata(),
 			}
 		}
 		if numReturns == 0 {

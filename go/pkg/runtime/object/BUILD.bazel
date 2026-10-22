@@ -21,6 +21,7 @@ go_library(
     srcs = [
         "actor_handle.go",
         "buffer_pool.go",
+        "error_wire.go",
         "exception.go",
         "exception_serializer.go",
         "native_object.go",
@@ -39,8 +40,10 @@ go_library(
         "//go/pkg/errors",
         "//go/pkg/ids",
         "//go/pkg/log",
+        "//go/proto",
         "@com_github_vmihailenco_msgpack_v5//:msgpack",
         "@org_golang_google_protobuf//encoding/protowire",
+        "@org_golang_google_protobuf//proto",
     ],
 )
 

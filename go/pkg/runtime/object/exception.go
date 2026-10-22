@@ -451,7 +451,8 @@ var metadataTypeTaskExecutionExceptionBytes = []byte(MetadataTypeTaskExecutionEx
 // deserializes the same shared contract type, so the JSON wire format stays in a single
 // definition (dependency inversion: go/internal depends on go/pkg, never the reverse). When the
 // JSON payload cannot be parsed it still returns a readable exception carrying the raw data, so
-// the driver never sees a silent/generic deserialization failure.
+// the driver never sees a silent/generic deserialization failure. Legacy convention retained for
+// objects written before the numeric wire change.
 func taskExceptionFromGoWorkerError(data []byte) RayException {
 	var payload pkgerrors.SerializedRayError
 	message := ""
@@ -489,6 +490,13 @@ var errorTypeFactories = map[int]func(*NativeRayObject) RayException{
 		return NewRayIDExceptionActorDied("")
 	},
 	RpcErrorTypeTaskExecutionException: func(nativeObj *NativeRayObject) RayException {
+		// The Go writer's dialect (RayException PB behind the 9-byte length
+		// header) takes precedence; the C++ CreateErrorObject dialect
+		// (RayErrorInfo PB, msgpack-wrapped) remains the fallback so error
+		// objects produced by the C++ nullptr path stay readable.
+		if exc := taskExceptionFromGoWirePayload(nativeObj.DataBytes()); exc != nil {
+			return exc
+		}
 		message := extractErrorInfoMessage(nativeObj.DataBytes())
 		if message == "" {
 			message = "task execution failed"
