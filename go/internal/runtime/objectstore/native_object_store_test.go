@@ -41,6 +41,13 @@ func newObjectID() *ids.ObjectID {
 	return &id
 }
 
+func TestNewNativeObjectStore(t *testing.T) {
+	lock := &sync.RWMutex{}
+	store := NewNativeObjectStore(lock)
+	require.NotNil(t, store)
+	assert.Same(t, lock, store.shutdownLock)
+}
+
 func TestGetRawWithContext_AlreadyCancelled(t *testing.T) {
 	store := NewNativeObjectStore(&sync.RWMutex{})
 

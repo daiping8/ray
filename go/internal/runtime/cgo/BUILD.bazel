@@ -46,6 +46,7 @@ go_library(
         "//go/internal/proctitle",
         "//go/internal/runtime/actor",
         "//go/internal/runtime/base",
+        "//go/pkg/errors",
         "//go/pkg/ids",
         "//go/pkg/log",
         "//go/pkg/runtime/contract",
