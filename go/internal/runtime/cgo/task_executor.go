@@ -38,6 +38,7 @@ import (
 	"github.com/ray-project/ray/go/internal/errors"
 	"github.com/ray-project/ray/go/internal/proctitle"
 	"github.com/ray-project/ray/go/internal/runtime/actor"
+	rayerrors "github.com/ray-project/ray/go/pkg/errors"
 	"github.com/ray-project/ray/go/pkg/ids"
 	"github.com/ray-project/ray/go/pkg/log"
 	"github.com/ray-project/ray/go/pkg/runtime/contract"
@@ -412,6 +413,10 @@ var cgoMemoryStats struct {
 //   - num_returns: Number of expected return values
 //   - actor_id_data: Binary data of actor ID (for actor tasks, NULL for normal tasks)
 //   - actor_id_size: Size of actor ID binary data
+//   - error_code: Out parameter for a task execution status code (0 = success).
+//     The Go side writes GO_TASK_ERROR_INTENTIONAL_SYSTEM_EXIT when the task
+//     raised an intentional actor exit, so C++ returns Status::IntentionalSystemExit
+//     (mirroring how the Java worker throws RayIntentionalSystemExitException).
 //
 // Returns:
 //   - *C.CSerializedObjectArray containing task execution results, or serialized error
@@ -428,6 +433,7 @@ func GoExecuteTask(
 	numReturns C.int,
 	actorIDData *C.char,
 	actorIDSize C.int,
+	errorCode *C.int,
 ) (cResult *C.CSerializedObjectArray) {
 	var funcDescList []string
 	defer func() {
@@ -530,6 +536,21 @@ func GoExecuteTask(
 		int(numReturns),
 		actorID,
 	)
+
+	// An actor-exit error is not a task failure: it drives CoreWorker::ExecuteTask's
+	// Exit(INTENDED_USER_EXIT) path and marks the worker exiting without treating
+	// the actor as failed, mirroring how the Java worker throws
+	// RayIntentionalSystemExitException. The exit is carried through the
+	// error_code out parameter instead of being serialized into a result object.
+	if err != nil && rayerrors.IsActorExitError(err) {
+		if errorCode != nil {
+			*errorCode = C.int(C.GO_TASK_ERROR_INTENTIONAL_SYSTEM_EXIT)
+		}
+		taskExecutorLogger.Info("task raised intentional actor exit",
+			"taskType", taskType, "error", err.Error())
+		// Return nil results: the actor is exiting, there is nothing to deliver.
+		return nil
+	}
 
 	// Convert result to C format
 	cResult = convertGoResultToC(results, err, int(numReturns))

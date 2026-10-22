@@ -29,6 +29,7 @@ import (
 	"unsafe"
 
 	"github.com/ray-project/ray/go/internal/runtime/serializer"
+	rayerrors "github.com/ray-project/ray/go/pkg/errors"
 	"github.com/ray-project/ray/go/pkg/ids"
 	"github.com/ray-project/ray/go/pkg/runtime/function"
 	"github.com/ray-project/ray/go/pkg/runtime/object"
@@ -429,6 +430,7 @@ func TestGoExecuteTask_Success(t *testing.T) {
 		1,   // numReturns
 		nil, // actorIDData
 		0,   // actorIDSize
+		nil, // errorCode
 	)
 
 	if result == nil {
@@ -469,6 +471,7 @@ func TestGoExecuteTask_ExecutorNotRegistered(t *testing.T) {
 		0,   // numReturns
 		nil, // actorIDData
 		0,   // actorIDSize
+		nil, // errorCode
 	)
 
 	if result != nil {
@@ -553,6 +556,7 @@ func TestGoExecuteTask_ErrorWireConvention(t *testing.T) {
 		1,   // numReturns
 		nil, // actorIDData
 		0,   // actorIDSize
+		nil, // errorCode
 	)
 	require.NotNil(t, result)
 	require.Equal(t, 1, int(result.count))
@@ -570,4 +574,125 @@ func TestGoExecuteTask_ErrorWireConvention(t *testing.T) {
 	require.NoError(t, goproto.Unmarshal(pbBytes, &exc))
 	assert.Equal(t, protogo.Language_GO, exc.GetLanguage())
 	assert.Contains(t, exc.GetFormattedExceptionString(), "goAdd exploded")
+}
+
+// TestGoExecuteTask_IntentionalExit verifies that an ActorExitError returned by
+// the executor sets the errorCode out-param to GO_TASK_ERROR_INTENTIONAL_SYSTEM_EXIT
+// and returns nil results (so C++ observes Status::IntentionalSystemExit).
+func TestGoExecuteTask_IntentionalExit(t *testing.T) {
+	SetTaskExecutor(func(
+		taskType int,
+		functionDescriptor function.FunctionDescriptor,
+		args []function.FunctionArg,
+		numReturns int,
+		actorID ids.ActorID,
+	) ([]function.SerializedObject, error) {
+		return nil, rayerrors.NewActorExitError("actor exiting")
+	})
+
+	// 4-element Go descriptor list for an actor method.
+	funcDescList := []string{"github.com/example/test", "pkg", "TestActor", "Exit"}
+	cFuncDesc := make([]*C.char, len(funcDescList))
+	for i, s := range funcDescList {
+		cFuncDesc[i] = C.CString(s)
+		defer C.free(unsafe.Pointer(cFuncDesc[i]))
+	}
+
+	var errorCode C.int
+	result := GoExecuteTask(
+		C.int(function.LanguageGo),
+		2, // TaskTypeActorTask
+		&cFuncDesc[0],
+		C.int(len(funcDescList)),
+		nil, // args
+		0,   // argsCount
+		1,   // numReturns
+		nil, // actorIDData
+		0,   // actorIDSize
+		&errorCode,
+	)
+
+	if result != nil {
+		t.Error("expected nil result on intentional exit, got non-nil")
+	}
+	if int(errorCode) != int(C.GO_TASK_ERROR_INTENTIONAL_SYSTEM_EXIT) {
+		t.Errorf("expected errorCode %d, got %d",
+			int(C.GO_TASK_ERROR_INTENTIONAL_SYSTEM_EXIT), int(errorCode))
+	}
+}
+
+func TestGoExecuteTask_NonExitErrorKeepsErrorCodeZero(t *testing.T) {
+	SetTaskExecutor(func(
+		taskType int,
+		functionDescriptor function.FunctionDescriptor,
+		args []function.FunctionArg,
+		numReturns int,
+		actorID ids.ActorID,
+	) ([]function.SerializedObject, error) {
+		return nil, fmt.Errorf("ordinary failure")
+	})
+
+	funcDescList := []string{"github.com/example/test", "pkg", "TestFn", ""}
+	cFuncDesc := make([]*C.char, len(funcDescList))
+	for i, s := range funcDescList {
+		cFuncDesc[i] = C.CString(s)
+		defer C.free(unsafe.Pointer(cFuncDesc[i]))
+	}
+
+	var errorCode C.int
+	result := GoExecuteTask(
+		C.int(function.LanguageGo),
+		0, // TaskTypeNormalTask
+		&cFuncDesc[0],
+		C.int(len(funcDescList)),
+		nil,
+		0,
+		1,
+		nil,
+		0,
+		&errorCode,
+	)
+
+	// An ordinary failure is an error OBJECT (numeric convention), not an
+	// exit: results stay populated and the code stays GO_TASK_OK so the C++
+	// switch does not reject the task as an unknown error code.
+	require.NotNil(t, result)
+	assert.Equal(t, 1, int(result.count))
+	assert.Equal(t, 0, int(errorCode))
+}
+
+func TestGoExecuteTask_NilErrorCodeOutParamTolerated(t *testing.T) {
+	SetTaskExecutor(func(
+		taskType int,
+		functionDescriptor function.FunctionDescriptor,
+		args []function.FunctionArg,
+		numReturns int,
+		actorID ids.ActorID,
+	) ([]function.SerializedObject, error) {
+		return nil, rayerrors.NewActorExitError("actor exiting")
+	})
+
+	funcDescList := []string{"github.com/example/test", "pkg", "TestActor", "Exit"}
+	cFuncDesc := make([]*C.char, len(funcDescList))
+	for i, s := range funcDescList {
+		cFuncDesc[i] = C.CString(s)
+		defer C.free(unsafe.Pointer(cFuncDesc[i]))
+	}
+
+	result := GoExecuteTask(
+		C.int(function.LanguageGo),
+		2,
+		&cFuncDesc[0],
+		C.int(len(funcDescList)),
+		nil,
+		0,
+		1,
+		nil,
+		0,
+		nil, // error_code out-param is optional per the C++ header contract
+	)
+
+	if result != nil {
+		t.Error("expected nil result on intentional exit, got non-nil")
+	}
 }
