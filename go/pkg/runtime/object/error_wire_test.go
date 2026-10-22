@@ -35,9 +35,7 @@ import (
 //     formatted_exception_string carries the human-readable message.
 //
 // The Go driver reads this object through ErrorObjectFromNative exactly like a
-// C++ error object (numeric metadata + msgpack-wrapped RayErrorInfo), so the
-// helper does not exist yet: these tests are the red pin for the Task 2
-// implementation.
+// C++ error object (numeric metadata + msgpack-wrapped RayErrorInfo).
 func TestMarshalTaskExecutionErrorData_WireForm(t *testing.T) {
 	data, err := MarshalTaskExecutionErrorData("boom: the real cause")
 	require.NoError(t, err)
@@ -55,7 +53,7 @@ func TestMarshalTaskExecutionErrorData_WireForm(t *testing.T) {
 
 // TestMarshalTaskExecutionErrorData_HeaderFormat pins the exact byte layout of
 // the data payload's 9-byte header: a msgpack compact int holding the wrapped
-// section length, zero-padded to 9 bytes — the format encodeLengthHeader
+// section length, zero-padded to 9 bytes - the format encodeLengthHeader
 // produces in go/internal/runtime/serializer/msgpack_serializer.go. If that
 // canonical helper ever changes, this test and it must change together.
 func TestMarshalTaskExecutionErrorData_HeaderFormat(t *testing.T) {
@@ -80,7 +78,7 @@ func TestMarshalTaskExecutionErrorData_HeaderFormat(t *testing.T) {
 }
 
 // TestErrorObjectFromNative_GoWireDialect verifies ErrorObjectFromNative reads
-// a task-execution error object produced by MarshalTaskExecutionErrorData — the
+// a task-execution error object produced by MarshalTaskExecutionErrorData - the
 // Go wire dialect (numeric metadata + 9-byte-header msgpack bin wrapping a
 // RayException PB).
 func TestErrorObjectFromNative_GoWireDialect(t *testing.T) {

@@ -157,8 +157,8 @@ func TestBuildJobOptionsFromBuilderIsRepeatable(t *testing.T) {
 
 // TestBuildJobOptionsFromBuilder_NilBuilder proves a nil builder is rejected
 // with an error instead of panicking. Clone() dereferences its receiver, so a
-// nil builder used to crash the caller; InitializeWithJobConfig has no error
-// path to report that with.
+// nil builder used to crash the caller; the guard lets InitializeWithJobConfig
+// report it through its error return.
 func TestBuildJobOptionsFromBuilder_NilBuilder(t *testing.T) {
 	_, err := buildJobOptionsFromBuilder(nil)
 	require.Error(t, err)

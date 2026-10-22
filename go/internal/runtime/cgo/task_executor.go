@@ -224,7 +224,15 @@ func convertGoResultToC(results []function.SerializedObject, err error, numRetur
 		// ({"type":"error"} metadata) was unreadable to Python; the Go
 		// reader keeps accepting it for objects written before this change
 		// (see ErrorObjectFromNative in go/pkg/runtime/object).
-		errorData, dataErr := object.MarshalTaskExecutionErrorData(rayErr.Error())
+		//
+		// Spec 3.1 requires FormattedExceptionString to carry both the error
+		// string and its stack trace, so append the stack the JSON convention
+		// used to carry (TaskExecutionError.StackTrace) on a new line.
+		msg := rayErr.Error()
+		if stack := rayErr.StackTrace(); stack != "" {
+			msg += "\n" + stack
+		}
+		errorData, dataErr := object.MarshalTaskExecutionErrorData(msg)
 		if dataErr != nil {
 			taskExecutorLogger.Error(dataErr, "Failed to marshal task error payload, using fallback message")
 			errorData, dataErr = object.MarshalTaskExecutionErrorData("task execution failed: " + err.Error())

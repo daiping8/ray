@@ -526,8 +526,7 @@ func TestSetTaskExecutor(t *testing.T) {
 // for TASK_EXECUTION_EXCEPTION ("3") and data is a 9-byte length header plus a
 // msgpack bin wrapping a serialized rpc::RayException carrying the Go error
 // message. This is the cross-language convention the Python driver reads back
-// as CrossLanguageError; it is currently red because the serializer helper that
-// produces this object does not exist yet.
+// as CrossLanguageError.
 func TestGoExecuteTask_ErrorWireConvention(t *testing.T) {
 	SetTaskExecutor(func(
 		taskType int,
