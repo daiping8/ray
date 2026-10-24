@@ -54,8 +54,11 @@ func TestMarshalTaskExecutionErrorData_WireForm(t *testing.T) {
 // TestMarshalTaskExecutionErrorData_HeaderFormat pins the exact byte layout of
 // the data payload's 9-byte header: a msgpack compact int holding the wrapped
 // section length, zero-padded to 9 bytes - the format encodeLengthHeader
-// produces in go/internal/runtime/serializer/msgpack_serializer.go. If that
-// canonical helper ever changes, this test and it must change together.
+// produces in go/internal/runtime/serializer/msgpack_serializer.go. This is a
+// self-pin (it re-encodes with its own encoder); the cross-package drift guard
+// against the canonical helper lives in that package's test
+// (TestErrorLengthHeaderMatchesCanonical in
+// go/internal/runtime/serializer/msgpack_serializer_test.go).
 func TestMarshalTaskExecutionErrorData_HeaderFormat(t *testing.T) {
 	data, err := MarshalTaskExecutionErrorData("drift probe")
 	require.NoError(t, err)
@@ -106,6 +109,59 @@ func TestErrorObjectFromNative_CppDialectStillReadable(t *testing.T) {
 	exc, ok := ErrorObjectFromNative(&NativeRayObject{Data: section.Bytes(), Metadata: []byte(strconv.Itoa(RpcErrorTypeTaskExecutionException))})
 	require.True(t, ok)
 	assert.Contains(t, exc.Error(), "cpp dialect message")
+}
+
+// TestErrorObjectFromNative_NonGoPayloadNotReadAsGoDialect pins the language
+// gate: a payload that structurally matches the Go dialect (9-byte length
+// header + msgpack bin) but wraps a C++ rpc::RayErrorInfo must not be parsed as
+// a Go rpc::RayException. RayErrorInfo has no field 1, so without the gate the
+// mis-parse exposes the field-3 runtime-env sub-message bytes as the
+// formatted_exception_string; the reader must reject it and fall back to the
+// RayErrorInfo path instead of returning raw protobuf garbage as the message.
+func TestErrorObjectFromNative_NonGoPayloadNotReadAsGoDialect(t *testing.T) {
+	info := &protogo.RayErrorInfo{
+		Error: &protogo.RayErrorInfo_RuntimeEnvSetupFailedError{
+			RuntimeEnvSetupFailedError: &protogo.RuntimeEnvFailedContext{
+				ErrorMessage: "runtime-env-submessage-bytes",
+			},
+		},
+	}
+	pbBytes, err := goproto.Marshal(info)
+	require.NoError(t, err)
+	section, err := msgpack.Marshal(pbBytes)
+	require.NoError(t, err)
+	header := make([]byte, messagePackOffset)
+	var headerBuf bytes.Buffer
+	enc := msgpack.NewEncoder(&headerBuf)
+	enc.UseCompactInts(true)
+	require.NoError(t, enc.EncodeInt(int64(len(section))))
+	copy(header, headerBuf.Bytes())
+	data := append(header, section...)
+
+	exc, ok := ErrorObjectFromNative(&NativeRayObject{Data: data, Metadata: TaskExecutionErrorMetadata()})
+	require.True(t, ok)
+	// The gate rejects the Go dialect; the field-3 bytes never surface as the
+	// message and the RayErrorInfo fallback is used instead.
+	assert.NotContains(t, exc.Error(), "runtime-env-submessage-bytes")
+	assert.Contains(t, exc.Error(), "task execution failed")
+}
+
+// TestErrorObjectFromNative_OversizedLengthHeaderNoPanic pins the int64-domain
+// bounds check: a header encoding 1<<33 followed by a short payload must be
+// rejected before any int narrowing, so the reader falls back to the
+// RayErrorInfo path instead of panicking on platforms where int is 32-bit.
+func TestErrorObjectFromNative_OversizedLengthHeaderNoPanic(t *testing.T) {
+	header := make([]byte, messagePackOffset)
+	var headerBuf bytes.Buffer
+	enc := msgpack.NewEncoder(&headerBuf)
+	enc.UseCompactInts(true)
+	require.NoError(t, enc.EncodeUint(uint64(1)<<33))
+	copy(header, headerBuf.Bytes())
+	data := append(header, []byte("tiny payload")...)
+
+	exc, ok := ErrorObjectFromNative(&NativeRayObject{Data: data, Metadata: TaskExecutionErrorMetadata()})
+	require.True(t, ok)
+	assert.Contains(t, exc.Error(), "task execution failed")
 }
 
 // TestErrorObjectFromNative_JsonCompatBranchRetained verifies the legacy Go

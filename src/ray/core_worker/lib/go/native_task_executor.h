@@ -42,9 +42,12 @@ extern "C" {
 //   actor_id_data - Binary data of actor ID (for actor tasks, NULL for normal tasks)
 //   actor_id_size - Size of actor ID binary data
 //   error_code - Out parameter for a task execution status code (see
-//     GoTaskErrorCode enum). 0 means success; the Go side writes a non-zero
-//     value so the C++ callback can return the matching ray::Status (e.g.
-//     INTENTIONAL_SYSTEM_EXIT). May be NULL when the caller only needs results.
+//     GoTaskErrorCode enum). 0 means the task completed and the returned array
+//     carries the results; a non-zero code maps to a ray::Status and no result
+//     array is returned (callers must treat the results as absent). The Go side
+//     writes a non-zero value so the C++ callback can return the matching
+//     ray::Status (e.g. INTENTIONAL_SYSTEM_EXIT). May be NULL when the caller
+//     only needs results.
 //
 // Returns:
 //   CSerializedObjectArray* containing task execution results, or NULL on failure.
@@ -78,9 +81,12 @@ typedef CSerializedObjectArray *(*GoTaskExecutorCallback)(int language,
 //   actor_id_data - Binary data of actor ID (for actor tasks, NULL for normal tasks)
 //   actor_id_size - Size of actor ID binary data
 //   error_code - Out parameter for a task execution status code (see
-//     GoTaskErrorCode enum). 0 means success; the Go side writes a non-zero
-//     value so the C++ callback can return the matching ray::Status (e.g.
-//     INTENTIONAL_SYSTEM_EXIT). May be NULL when the caller only needs results.
+//     GoTaskErrorCode enum). 0 means the task completed and the returned array
+//     carries the results; a non-zero code maps to a ray::Status and no result
+//     array is returned (callers must treat the results as absent). The Go side
+//     writes a non-zero value so the C++ callback can return the matching
+//     ray::Status (e.g. INTENTIONAL_SYSTEM_EXIT). May be NULL when the caller
+//     only needs results.
 //
 // Returns:
 //   CSerializedObjectArray* containing task execution results, or NULL on failure.

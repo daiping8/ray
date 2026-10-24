@@ -29,7 +29,10 @@ import (
 // bytes. Byte-format identical to encodeLengthHeader in
 // go/internal/runtime/serializer/msgpack_serializer.go; kept local because
 // that helper is unexported and the serializer is an internal package. The
-// drift guard in error_wire_test.go fails if the two formats diverge.
+// cross-package drift guard lives in that package's test
+// (TestErrorLengthHeaderMatchesCanonical in
+// go/internal/runtime/serializer/msgpack_serializer_test.go) and compares this
+// header against the canonical helper directly.
 const messagePackOffset = 9
 
 // TaskExecutionErrorMetadata returns the metadata marking a task execution
@@ -86,7 +89,7 @@ func taskExceptionFromGoWirePayload(data []byte) RayException {
 	}
 	dec := msgpack.NewDecoder(bytes.NewReader(data[:messagePackOffset]))
 	length, err := dec.DecodeInt64()
-	if err != nil || length <= 0 || int(length) > len(data)-messagePackOffset {
+	if err != nil || length <= 0 || length > int64(len(data)-messagePackOffset) {
 		return nil
 	}
 	var pbBytes []byte
@@ -95,6 +98,13 @@ func taskExceptionFromGoWirePayload(data []byte) RayException {
 	}
 	var rayExc protogo.RayException
 	if err := goproto.Unmarshal(pbBytes, &rayExc); err != nil {
+		return nil
+	}
+	// Only a Go RayException belongs to this dialect. RayErrorInfo has no field
+	// 1, so a C++ error payload mis-parsed as a RayException always yields
+	// language 0; rejecting it here falls through to extractErrorInfoMessage
+	// instead of returning its field-3 sub-message bytes as a message.
+	if rayExc.GetLanguage() != protogo.Language_GO {
 		return nil
 	}
 	message := rayExc.GetFormattedExceptionString()
