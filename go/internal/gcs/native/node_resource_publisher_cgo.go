@@ -1,3 +1,17 @@
+// Copyright 2026 The Ray Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//  http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //go:build cgo
 
 package native
@@ -38,26 +52,35 @@ func (c *cgoClient) PublishNodeResourceUsage(ctx context.Context, keyID, jsonPay
 		return fmt.Errorf("node resource usage payload must not be empty")
 	}
 
-	var cErr *C.char
-	cKeyID := C.CString(keyID)
-	defer C.free(unsafe.Pointer(cKeyID))
-	cPayload := C.CString(jsonPayload)
-	defer C.free(unsafe.Pointer(cPayload))
-
 	_, err := waitContext(ctx, runAsync(ctx, func() (struct{}, error) {
-		ok := C.ray_gcs_client_publisher_publish_node_resource_usage(
-			c.getPtr(),
-			cKeyID,
-			cPayload,
-			&cErr,
-		)
-		if cErr != nil {
-			errMsg := C.GoString(cErr)
-			C.free(unsafe.Pointer(cErr))
-			return struct{}{}, fmt.Errorf("publish node resource usage failed: %s", errMsg)
-		}
-		if ok == 0 {
-			return struct{}{}, fmt.Errorf("publish node resource usage failed")
+		// Allocate the C strings inside the goroutine closure so their
+		// lifetime is bound to the goroutine that uses them: if ctx is
+		// cancelled the outer call returns while this C call is still
+		// running, and only this closure's defers may free the buffers.
+		var cErr *C.char
+		cKeyID := C.CString(keyID)
+		defer C.free(unsafe.Pointer(cKeyID))
+		cPayload := C.CString(jsonPayload)
+		defer C.free(unsafe.Pointer(cPayload))
+
+		err := c.withPtr(func(ptr *C.CGcsClient) error {
+			ok := C.ray_gcs_client_publisher_publish_node_resource_usage(
+				ptr,
+				cKeyID,
+				cPayload,
+				&cErr,
+			)
+			if cErr != nil {
+				defer C.free(unsafe.Pointer(cErr))
+				return fmt.Errorf("publish node resource usage failed: %s", C.GoString(cErr))
+			}
+			if ok == 0 {
+				return fmt.Errorf("publish node resource usage failed")
+			}
+			return nil
+		})
+		if err != nil {
+			return struct{}{}, err
 		}
 		return struct{}{}, nil
 	}))
