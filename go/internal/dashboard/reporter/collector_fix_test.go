@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-// TestProcAttrsRequiredFields verifies Business Finding 2: procAttrs must
-// always emit the ProcessInfo-required fields pid, create_time, and
-// cpu_percent (matching the Python ProcessInfo pydantic model), plus cmdline
-// and name. The test runs against the current process, which always exists.
+// TestProcAttrsRequiredFields verifies that procAttrs always emits the
+// ProcessInfo-required fields pid, create_time, and cpu_percent (matching the
+// Python ProcessInfo pydantic model), plus cmdline and name. The test runs
+// against the current process, which always exists.
 func TestProcAttrsRequiredFields(t *testing.T) {
 	s := &systemSource{}
 	info := s.procAttrs(os.Getpid())
@@ -123,9 +123,8 @@ func TestNetworkSpeedInsufficientSamples(t *testing.T) {
 	}
 }
 
-// TestMeminfoCachedPerCycle verifies Performance Finding 2: meminfo is parsed
-// once per collect cycle and cached, and resetCycleCache invalidates it for the
-// next cycle.
+// TestMeminfoCachedPerCycle verifies that meminfo is parsed once per collect
+// cycle and cached, and that resetCycleCache invalidates it for the next cycle.
 func TestMeminfoCachedPerCycle(t *testing.T) {
 	s := &systemSource{}
 	if s.meminfoCached {
@@ -156,8 +155,8 @@ func TestMeminfoCachedPerCycle(t *testing.T) {
 	}
 }
 
-// TestBootTimeCached verifies Performance Finding 1: bootTime reads /proc/stat
-// once and caches the result for subsequent calls.
+// TestBootTimeCached verifies that bootTime reads /proc/stat once and caches
+// the result for subsequent calls.
 func TestBootTimeCached(t *testing.T) {
 	s := &systemSource{}
 	if s.bootCached {
