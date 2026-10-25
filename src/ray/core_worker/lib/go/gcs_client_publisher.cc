@@ -14,6 +14,8 @@
 
 // src/ray/core_worker/lib/go/gcs_client_publisher.cc
 // GCS Client CGO bridge - Publisher operations
+#include <condition_variable>
+#include <mutex>
 #include <string>
 #include <utility>
 
@@ -70,6 +72,54 @@ int ray_gcs_client_publisher_publish_log_batch(CGcsClient *client,
         key_id ? std::string(key_id) : std::string(), std::move(log_batch), timeout_ms);
     if (!status.ok()) {
       set_error(error_out, status.ToString().c_str());
+      return 0;
+    }
+    return 1;
+  } catch (const std::exception &e) {
+    set_error(error_out, e.what());
+    return 0;
+  }
+}
+
+int ray_gcs_client_publisher_publish_node_resource_usage(
+    CGcsClient *client,
+    const char *key_id,
+    const char *node_resource_usage_json,
+    char **error_out) {
+  if (!client || !client->gcs_client) {
+    set_error(error_out, "Invalid arguments: client is null");
+    return 0;
+  }
+
+  try {
+    // AsyncPublishNodeResourceUsage is asynchronous only, so we bridge it
+    // back to a synchronous call for the Go layer using a mutex +
+    // condition_variable. The completion callback runs on the GCS RPC
+    // thread (a different thread than the caller), so there is no deadlock.
+    std::mutex mtx;
+    std::condition_variable cv;
+    bool done = false;
+    ray::Status result_status = ray::Status::OK();
+
+    client->gcs_client->Publisher().AsyncPublishNodeResourceUsage(
+        key_id ? std::string(key_id) : std::string(),
+        node_resource_usage_json ? std::string(node_resource_usage_json) : std::string(),
+        [&](const ray::Status &status) {
+          {
+            std::lock_guard<std::mutex> lock(mtx);
+            result_status = status;
+            done = true;
+          }
+          cv.notify_one();
+        });
+
+    {
+      std::unique_lock<std::mutex> lock(mtx);
+      cv.wait(lock, [&] { return done; });
+    }
+
+    if (!result_status.ok()) {
+      set_error(error_out, result_status.ToString().c_str());
       return 0;
     }
     return 1;
