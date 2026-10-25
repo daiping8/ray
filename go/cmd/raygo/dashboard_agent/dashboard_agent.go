@@ -26,6 +26,7 @@ import (
 	dashboardevent "github.com/ray-project/ray/go/internal/dashboard/event"
 	"github.com/ray-project/ray/go/internal/dashboard/healthz"
 	dashboardlog "github.com/ray-project/ray/go/internal/dashboard/log"
+	dashboardreporter "github.com/ray-project/ray/go/internal/dashboard/reporter"
 	"github.com/ray-project/ray/go/pkg/gcs"
 	"github.com/ray-project/ray/go/pkg/ids"
 	"github.com/ray-project/ray/go/pkg/log"
@@ -334,7 +335,11 @@ func buildModules(cfg agent.Config) ([]agent.Module, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create event module: %w", err)
 	}
-	return []agent.Module{logAgent, healthzAgent, eventAgent}, nil
+	reporterAgent, err := dashboardreporter.New(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("create reporter module: %w", err)
+	}
+	return []agent.Module{logAgent, healthzAgent, eventAgent, reporterAgent}, nil
 }
 
 // isValidLogLevel reports whether level is one of common.LoggerLevelChoices.

@@ -25,6 +25,7 @@ import (
 	dashboardevent "github.com/ray-project/ray/go/internal/dashboard/event"
 	"github.com/ray-project/ray/go/internal/dashboard/healthz"
 	dashboardlog "github.com/ray-project/ray/go/internal/dashboard/log"
+	dashboardreporter "github.com/ray-project/ray/go/internal/dashboard/reporter"
 	"github.com/ray-project/ray/go/pkg/gcs"
 	"github.com/ray-project/ray/go/pkg/ids"
 	"github.com/ray-project/ray/go/proto"
@@ -197,13 +198,13 @@ func (f *buildModulesFakeGCS) GetAll(_ context.Context, nodeIDs []ids.NodeID) (m
 // serving.
 func TestBuildModules(t *testing.T) {
 	fakeGCS := &buildModulesFakeGCS{}
-	t.Run("returns log, healthz and event modules", func(t *testing.T) {
+	t.Run("returns log, healthz, event and reporter modules", func(t *testing.T) {
 		mods, err := buildModules(agent.Config{LogDir: t.TempDir(), GCS: fakeGCS})
 		if err != nil {
 			t.Fatalf("buildModules: %v", err)
 		}
-		if len(mods) != 3 {
-			t.Fatalf("buildModules returned %d modules, want 3", len(mods))
+		if len(mods) != 4 {
+			t.Fatalf("buildModules returned %d modules, want 4", len(mods))
 		}
 		if _, ok := mods[0].(*dashboardlog.LogAgentModule); !ok {
 			t.Errorf("module[0] type = %T, want *log.LogAgentModule", mods[0])
@@ -213,6 +214,9 @@ func TestBuildModules(t *testing.T) {
 		}
 		if _, ok := mods[2].(*dashboardevent.EventAgent); !ok {
 			t.Errorf("module[2] type = %T, want *event.EventAgent", mods[2])
+		}
+		if _, ok := mods[3].(*dashboardreporter.ReporterModule); !ok {
+			t.Errorf("module[3] type = %T, want *reporter.ReporterModule", mods[3])
 		}
 	})
 
