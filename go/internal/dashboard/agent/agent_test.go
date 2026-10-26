@@ -27,7 +27,11 @@ import (
 
 	"github.com/ray-project/ray/go/pkg/gcs"
 	"github.com/ray-project/ray/go/pkg/ids"
+	"github.com/ray-project/ray/go/proto"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 // fakeKVClient is a minimal in-memory gcs.Client used to observe KV writes.
@@ -281,5 +285,119 @@ func TestPersistAgentPorts(t *testing.T) {
 		if got := string(data); got != c.want {
 			t.Errorf("%s content = %q, want %q", c.name, got, c.want)
 		}
+	}
+}
+
+// TestNewGRPCServerBindsAllInterfaces verifies the gRPC listener is reachable
+// from both localhost (the raylet's MetricsAgentClient dials localhost) and
+// this host's non-loopback address (head-side consumers dial the pod IP
+// resolved through ports_by_node).
+func TestNewGRPCServerBindsAllInterfaces(t *testing.T) {
+	srv, err := newGRPCServer(Config{NodeIP: "127.0.0.1", GRPCPort: 0}, nil)
+	if err != nil {
+		t.Fatalf("newGRPCServer: %v", err)
+	}
+	defer srv.listener.Close()
+	port := listenerPort(srv.listener)
+	if port <= 0 {
+		t.Fatalf("listener port = %d, want a bound ephemeral port", port)
+	}
+	dial := func(addr string) {
+		t.Helper()
+		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+		if err != nil {
+			t.Errorf("dial %s: %v", addr, err)
+			return
+		}
+		conn.Close()
+	}
+	dial(fmt.Sprintf("localhost:%d", port))
+	if ip := nonLoopbackIPv4(t); ip != "" {
+		dial(fmt.Sprintf("%s:%d", ip, port))
+	}
+}
+
+// recoveryTestModule registers a minimal gRPC service with one panicking and
+// one healthy unary method, exercising the agent's panic recovery end to end.
+type recoveryTestModule struct{}
+
+func (m *recoveryTestModule) Start(context.Context) error          { return nil }
+func (m *recoveryTestModule) RegisterHTTP(*http.ServeMux) error    { return nil }
+func (m *recoveryTestModule) RegisterGRPC(s *grpc.Server) error {
+	s.RegisterService(&recoveryTestServiceDesc, &recoveryTestService{})
+	return nil
+}
+
+type recoveryTestService struct{}
+
+var recoveryTestServiceDesc = grpc.ServiceDesc{
+	ServiceName: "test.RecoveryService",
+	HandlerType: (*interface{})(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Panic",
+			Handler: func(_ interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+				in := new(proto.ListLogsRequest)
+				if err := dec(in); err != nil {
+					return nil, err
+				}
+				handler := func(context.Context, interface{}) (interface{}, error) {
+					panic("boom")
+				}
+				if interceptor == nil {
+					return handler(ctx, in)
+				}
+				info := &grpc.UnaryServerInfo{FullMethod: "/test.RecoveryService/Panic"}
+				return interceptor(ctx, in, info, handler)
+			},
+		},
+		{
+			MethodName: "Healthy",
+			Handler: func(_ interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+				in := new(proto.ListLogsRequest)
+				if err := dec(in); err != nil {
+					return nil, err
+				}
+				handler := func(context.Context, interface{}) (interface{}, error) {
+					return &proto.ListLogsReply{}, nil
+				}
+				if interceptor == nil {
+					return handler(ctx, in)
+				}
+				info := &grpc.UnaryServerInfo{FullMethod: "/test.RecoveryService/Healthy"}
+				return interceptor(ctx, in, info, handler)
+			},
+		},
+	},
+}
+
+// TestUnaryRecoveryInterceptorKeepsServerAlive verifies that a panicking unary
+// handler surfaces as codes.Internal to the client and does not kill the
+// agent: a subsequent request is still served.
+func TestUnaryRecoveryInterceptorKeepsServerAlive(t *testing.T) {
+	srv, err := newGRPCServer(Config{NodeIP: "127.0.0.1", GRPCPort: 0}, []Module{&recoveryTestModule{}})
+	if err != nil {
+		t.Fatalf("newGRPCServer: %v", err)
+	}
+	go srv.serve()
+	defer srv.stop()
+
+	conn, err := grpc.DialContext(context.Background(),
+		fmt.Sprintf("127.0.0.1:%d", listenerPort(srv.listener)),
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = conn.Invoke(ctx, "/test.RecoveryService/Panic", &proto.ListLogsRequest{}, &proto.ListLogsReply{})
+	if st, ok := status.FromError(err); !ok || st.Code() != codes.Internal {
+		t.Fatalf("panic call error = %v, want codes.Internal", err)
+	}
+	if err := conn.Invoke(ctx, "/test.RecoveryService/Healthy", &proto.ListLogsRequest{}, &proto.ListLogsReply{}); err != nil {
+		t.Fatalf("healthy call after a recovered panic = %v, want nil", err)
 	}
 }

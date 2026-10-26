@@ -78,10 +78,17 @@ func (s *MetricsService) exportMetric(metric *proto.Metric) {
 		return
 	}
 
-	labelNames := make([]string, 0, len(desc.GetLabelKeys()))
-	for _, lk := range desc.GetLabelKeys() {
+	// Keep the descriptor keys that carry a name and remember their indexes, so
+	// the series label values can be read at exactly those indexes. Dropping an
+	// empty key must drop the matching value too, or the values no longer line
+	// up with the gauge's label names and WithLabelValues panics.
+	keys := desc.GetLabelKeys()
+	labelNames := make([]string, 0, len(keys))
+	keptIndexes := make([]int, 0, len(keys))
+	for i, lk := range keys {
 		if lk != nil && lk.GetKey() != "" {
 			labelNames = append(labelNames, lk.GetKey())
+			keptIndexes = append(keptIndexes, i)
 		}
 	}
 
@@ -91,8 +98,12 @@ func (s *MetricsService) exportMetric(metric *proto.Metric) {
 		if ts == nil {
 			continue
 		}
-		labelValues := make([]string, 0, len(labelNames))
-		labelValues = append(labelValues, labelValuesFromSeries(ts, len(labelNames))...)
+		labelValues, ok := labelValuesForKeys(ts, keptIndexes)
+		if !ok {
+			// The series does not carry a value for every retained key; skip it
+			// rather than mislabel or panic on a cardinality mismatch.
+			continue
+		}
 
 		for _, point := range ts.GetPoints() {
 			if point == nil {
@@ -102,11 +113,7 @@ func (s *MetricsService) exportMetric(metric *proto.Metric) {
 			if !ok {
 				continue
 			}
-			if len(labelValues) == 0 {
-				gauge.WithLabelValues().Set(value)
-			} else {
-				gauge.WithLabelValues(labelValues...).Set(value)
-			}
+			gauge.WithLabelValues(labelValues...).Set(value)
 		}
 	}
 }
@@ -136,18 +143,25 @@ func (s *MetricsService) getOrCreateGauge(name, help string, labelNames []string
 	return gauge
 }
 
-// labelValuesFromSeries extracts label values from a time series, aligned with
-// the order of the descriptor's label keys.
-func labelValuesFromSeries(ts *proto.TimeSeries, want int) []string {
-	values := make([]string, 0, want)
-	for _, lv := range ts.GetLabelValues() {
+// labelValuesForKeys extracts the series label values at the retained key
+// indexes, so the result is aligned one-to-one with the gauge's label names
+// even when some descriptor keys were dropped. It returns false when the series
+// is missing a value for a retained key.
+func labelValuesForKeys(ts *proto.TimeSeries, keptIndexes []int) ([]string, bool) {
+	raw := ts.GetLabelValues()
+	values := make([]string, 0, len(keptIndexes))
+	for _, i := range keptIndexes {
+		if i >= len(raw) {
+			return nil, false
+		}
+		lv := raw[i]
 		if lv == nil || !lv.GetHasValue() {
 			values = append(values, "")
 		} else {
 			values = append(values, lv.GetValue())
 		}
 	}
-	return values
+	return values, true
 }
 
 // pointValue extracts the numeric value of a point, returning false for point

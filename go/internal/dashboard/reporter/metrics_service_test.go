@@ -266,3 +266,88 @@ func TestMetricsServiceExportMetadata(t *testing.T) {
 		t.Error("expected non-empty help text on exported metric")
 	}
 }
+
+// TestMetricsServiceExportAlignsFilteredLabelKeys verifies that dropping an
+// empty descriptor key also drops the matching series value, so the values stay
+// aligned with the retained keys instead of panicking on WithLabelValues with
+// the wrong cardinality.
+func TestMetricsServiceExportAlignsFilteredLabelKeys(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	svc := NewMetricsService(reg)
+
+	m := &proto.Metric{
+		MetricDescriptor: &proto.MetricDescriptor{
+			Name:      "component_cpu_percentage",
+			Type:      proto.MetricDescriptor_GAUGE_DOUBLE,
+			LabelKeys: []*proto.LabelKey{{Key: "ip"}, {Key: ""}, {Key: "Component"}},
+		},
+		Timeseries: []*proto.TimeSeries{{
+			LabelValues: []*proto.LabelValue{
+				{Value: "1.2.3.4", HasValue: true},
+				{Value: "dropped", HasValue: true},
+				{Value: "agent", HasValue: true},
+			},
+			Points: []*proto.Point{{Value: &proto.Point_DoubleValue{DoubleValue: 7.5}}},
+		}},
+	}
+	if err := svc.Export(context.Background(), []*proto.Metric{m}); err != nil {
+		t.Fatalf("Export error = %v", err)
+	}
+
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("Gather error = %v", err)
+	}
+	if len(families) != 1 {
+		t.Fatalf("expected 1 metric family, got %d", len(families))
+	}
+	metric := families[0].GetMetric()[0]
+	gotLabels := make(map[string]string, len(metric.GetLabel()))
+	for _, lp := range metric.GetLabel() {
+		gotLabels[lp.GetName()] = lp.GetValue()
+	}
+	wantLabels := map[string]string{"ip": "1.2.3.4", "Component": "agent"}
+	if len(gotLabels) != len(wantLabels) {
+		t.Fatalf("label count mismatch: got %v want %v", gotLabels, wantLabels)
+	}
+	for k, v := range wantLabels {
+		if gotLabels[k] != v {
+			t.Errorf("label %q = %q, want %q", k, gotLabels[k], v)
+		}
+	}
+}
+
+// TestMetricsServiceExportSkipsUnalignedSeries verifies that a series missing a
+// value for a retained key is skipped instead of panicking; the rest of the
+// batch still exports.
+func TestMetricsServiceExportSkipsUnalignedSeries(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	svc := NewMetricsService(reg)
+
+	bad := &proto.Metric{
+		MetricDescriptor: &proto.MetricDescriptor{
+			Name:      "node_mem_used",
+			Type:      proto.MetricDescriptor_GAUGE_DOUBLE,
+			LabelKeys: []*proto.LabelKey{{Key: "ip"}},
+		},
+		Timeseries: []*proto.TimeSeries{{
+			Points: []*proto.Point{{Value: &proto.Point_DoubleValue{DoubleValue: 1}}},
+		}},
+	}
+	good := newDoubleMetric("node_disk_free", "Disk free on a ray node",
+		[]string{"ip"}, []string{"5.5.5.5"}, 100)
+
+	if err := svc.Export(context.Background(), []*proto.Metric{bad, good}); err != nil {
+		t.Fatalf("Export error = %v", err)
+	}
+	names, err := gatherNames(reg)
+	if err != nil {
+		t.Fatalf("Gather error = %v", err)
+	}
+	if !names["ray_node_disk_free"] {
+		t.Errorf("expected the valid metric to still export, got %v", names)
+	}
+	if names["ray_node_mem_used"] {
+		t.Errorf("expected the unaligned series to be skipped, got %v", names)
+	}
+}
