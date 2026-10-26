@@ -105,19 +105,53 @@ func TestRunStartsAllModules(t *testing.T) {
 	}
 }
 
-// TestNewHTTPServerBindsBeforeServe verifies the listen socket is bound by
-// the constructor, so the socket accepts connections before the agent
-// publishes its address in GCS.
+// TestNewHTTPServerBindsBeforeServe verifies the listen socket is bound by the
+// constructor (so it accepts connections before the agent publishes its address
+// in GCS) and that it is reachable both from localhost (the in-container
+// readiness probe) and from this host's non-loopback address (head-side
+// consumers dialing the pod IP resolved through ports_by_node).
 func TestNewHTTPServerBindsBeforeServe(t *testing.T) {
 	httpSrv, err := newHTTPServer(Config{NodeIP: "127.0.0.1", ListenPort: 0}, []Module{&stubModule{}})
 	if err != nil {
 		t.Fatalf("newHTTPServer: %v", err)
 	}
-	conn, err := net.Dial("tcp", httpSrv.listener.Addr().String())
-	if err != nil {
-		t.Fatalf("dial bound listener before serve: %v", err)
+	port := listenerPort(httpSrv.listener)
+	if port <= 0 {
+		t.Fatalf("listener port = %d, want a bound ephemeral port", port)
 	}
-	conn.Close()
+	dialBeforeServe := func(addr string) {
+		t.Helper()
+		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+		if err != nil {
+			t.Errorf("dial %s before serve: %v", addr, err)
+			return
+		}
+		conn.Close()
+	}
+	dialBeforeServe(fmt.Sprintf("localhost:%d", port))
+	if ip := nonLoopbackIPv4(t); ip != "" {
+		dialBeforeServe(fmt.Sprintf("%s:%d", ip, port))
+	}
+}
+
+// nonLoopbackIPv4 returns this host's first non-loopback IPv4 address, or ""
+// when the host has none.
+func nonLoopbackIPv4(t *testing.T) string {
+	t.Helper()
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		t.Fatalf("InterfaceAddrs: %v", err)
+	}
+	for _, a := range addrs {
+		ipNet, ok := a.(*net.IPNet)
+		if !ok || ipNet.IP.IsLoopback() {
+			continue
+		}
+		if ip4 := ipNet.IP.To4(); ip4 != nil {
+			return ip4.String()
+		}
+	}
+	return ""
 }
 
 // TestRunDegradesWhenHTTPPortTaken verifies the Python parity contract for an
