@@ -185,25 +185,37 @@ func readPersistedPort(t *testing.T, dir string, nodeID ids.NodeID, name string)
 func TestRunPersistsDashboardAgentPorts(t *testing.T) {
 	dir := t.TempDir()
 	nodeID := ids.NewNodeID()
+	fake := &fakeKVClient{}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err := Run(ctx, Config{
 		NodeIP:     "127.0.0.1",
 		NodeID:     nodeID,
 		SessionDir: dir,
-		GCS:        &fakeKVClient{},
+		GCS:        fake,
 	}, nil); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
-	if got := readPersistedPort(t, dir, nodeID, "metrics_agent_port"); got <= 0 {
-		t.Errorf("metrics_agent_port = %d, want a bound ephemeral port", got)
+	grpcPort := readPersistedPort(t, dir, nodeID, "metrics_agent_port")
+	if grpcPort <= 0 {
+		t.Errorf("metrics_agent_port = %d, want a bound ephemeral port", grpcPort)
 	}
 	if got := readPersistedPort(t, dir, nodeID, "metrics_export_port"); got != -1 {
 		t.Errorf("metrics_export_port = %d, want -1 (the Go agent does not export metrics)", got)
 	}
-	if got := readPersistedPort(t, dir, nodeID, "dashboard_agent_listen_port"); got <= 0 {
-		t.Errorf("dashboard_agent_listen_port = %d, want a bound ephemeral port", got)
+	listenPort := readPersistedPort(t, dir, nodeID, "dashboard_agent_listen_port")
+	if listenPort <= 0 {
+		t.Errorf("dashboard_agent_listen_port = %d, want a bound ephemeral port", listenPort)
+	}
+
+	// The GCS address registration must carry the same actual bound ports, not
+	// the configured 0 that dynamic allocation starts from; head-side lookups
+	// through ports_by_node would otherwise resolve to port 0.
+	want := fmt.Sprintf("[%q, %d, %d]", "127.0.0.1", listenPort, grpcPort)
+	key := DASHBOARD_AGENT_ADDR_NODE_ID_PREFIX + nodeID.Hex()
+	if got := string(fake.kv[KVNamespaceDashboard][key]); got != want {
+		t.Errorf("registered agent address = %q, want %q", got, want)
 	}
 }
 
