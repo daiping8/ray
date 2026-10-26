@@ -19,6 +19,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -155,5 +158,82 @@ func TestRunDegradesWhenHTTPPortTaken(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run did not return after cancellation")
+	}
+}
+
+// readPersistedPort reads a port-discovery file written by the agent. The file
+// name is "{port_name}_{node_id_hex}" and the content is the decimal port,
+// mirroring ray::PersistPort.
+func readPersistedPort(t *testing.T, dir string, nodeID ids.NodeID, name string) int {
+	t.Helper()
+	path := filepath.Join(dir, name+"_"+nodeID.Hex())
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+	port, err := strconv.Atoi(string(data))
+	if err != nil {
+		t.Fatalf("parse %s content %q: %v", name, data, err)
+	}
+	return port
+}
+
+// TestRunPersistsDashboardAgentPorts verifies the agent publishes the port
+// files raylet's WaitForDashboardAgentPorts waits on when a port is 0
+// (dynamic allocation). raylet blocks for these files and CHECK-fails after
+// 15s if they never appear, so failing to write them kills startup.
+func TestRunPersistsDashboardAgentPorts(t *testing.T) {
+	dir := t.TempDir()
+	nodeID := ids.NewNodeID()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := Run(ctx, Config{
+		NodeIP:     "127.0.0.1",
+		NodeID:     nodeID,
+		SessionDir: dir,
+		GCS:        &fakeKVClient{},
+	}, nil); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if got := readPersistedPort(t, dir, nodeID, "metrics_agent_port"); got <= 0 {
+		t.Errorf("metrics_agent_port = %d, want a bound ephemeral port", got)
+	}
+	if got := readPersistedPort(t, dir, nodeID, "metrics_export_port"); got != -1 {
+		t.Errorf("metrics_export_port = %d, want -1 (the Go agent does not export metrics)", got)
+	}
+	if got := readPersistedPort(t, dir, nodeID, "dashboard_agent_listen_port"); got <= 0 {
+		t.Errorf("dashboard_agent_listen_port = %d, want a bound ephemeral port", got)
+	}
+}
+
+// TestPersistAgentPorts verifies the exact file names and decimal contents for
+// injected bound ports. The Go agent does not export metrics, so
+// metrics_export_port must be -1.
+func TestPersistAgentPorts(t *testing.T) {
+	dir := t.TempDir()
+	nodeID, err := ids.NodeIDFromHex("0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c")
+	if err != nil {
+		t.Fatalf("NodeIDFromHex: %v", err)
+	}
+	if err := persistAgentPorts(Config{SessionDir: dir, NodeID: nodeID}, 12345, 54321); err != nil {
+		t.Fatalf("persistAgentPorts: %v", err)
+	}
+	for _, c := range []struct {
+		name string
+		want string
+	}{
+		{"metrics_agent_port", "12345"},
+		{"metrics_export_port", "-1"},
+		{"dashboard_agent_listen_port", "54321"},
+	} {
+		path := filepath.Join(dir, c.name+"_"+nodeID.Hex())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", c.name, err)
+		}
+		if got := string(data); got != c.want {
+			t.Errorf("%s content = %q, want %q", c.name, got, c.want)
+		}
 	}
 }

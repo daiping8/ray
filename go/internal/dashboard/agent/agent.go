@@ -92,6 +92,18 @@ func Run(ctx context.Context, cfg Config, mods []Module) error {
 		return fmt.Errorf("create gRPC server: %w", err)
 	}
 
+	// Publish the bound ports before registering the agent: when a port is 0,
+	// raylet waits for these files before it registers this node in GCS, so
+	// writing them after registration would deadlock the startup.
+	listenPort := -1
+	if httpSrv != nil {
+		listenPort = listenerPort(httpSrv.listener)
+	}
+	if err := persistAgentPorts(cfg, listenerPort(grpcSrv.listener), listenPort); err != nil {
+		shutdownServers(httpSrv, grpcSrv)
+		return fmt.Errorf("persist dashboard agent ports: %w", err)
+	}
+
 	// Start every module before serving so configuration or initialization
 	// errors surface before any traffic is accepted.
 	for _, m := range mods {
