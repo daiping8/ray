@@ -358,8 +358,10 @@ func (s *LocalModeTaskSubmitter) GetActorHandle(actorID ids.ActorID) (submitter.
 // and task context are torn down, and any named-actor registration is removed,
 // so later submissions and GetActor lookups report the actor as unavailable.
 // The force and noRestart parameters are accepted for API compatibility but
-// have no effect (Java's local mode, RayDevRuntime, does not support kill at
-// all); both are recorded and logged so tests can observe the forwarding.
+// have no effect: the semantics matrix documented on api.KillActor applies to
+// the cluster runtime only (Java's local mode, RayDevRuntime, does not
+// support kill at all); both are recorded and logged so tests can observe the
+// forwarding.
 //
 // Note: like every local-mode actor call (executeInGroup waits synchronously),
 // killing an actor that is currently stuck in a task blocks until that task

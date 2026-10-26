@@ -318,9 +318,11 @@ func (s *NativeTaskSubmitter) GetActorHandle(actorID ids.ActorID) (submitter.Act
 
 // KillActor kills an actor from the driver side.
 // This implementation calls CGO to invoke the C++ CoreWorker::KillActor.
-// force=false keeps the graceful path (the worker exits through
-// INTENDED_USER_EXIT); force=true is the hard kill matching the Java runtime
-// semantics (kill equals a crash, pending tasks fail).
+// See the semantics matrix on api.KillActor: with noRestart=false, force=false
+// takes the graceful kill chain (raylet KillLocalActor RPC, worker exit
+// recorded as INTENDED_SYSTEM_EXIT) and force=true is the hard kill;
+// noRestart=true routes through the GCS actor-destroy path (hard kill
+// regardless of force).
 func (s *NativeTaskSubmitter) KillActor(actorID ids.ActorID, force, noRestart bool) error {
 	if actorID.IsNil() {
 		return fmt.Errorf("kill actor: actor ID is nil")

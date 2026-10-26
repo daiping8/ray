@@ -166,8 +166,12 @@ int CNativeTaskSubmitter_GetActor(const char *name,
 // Parameters:
 //   actor_id_data - Binary data of actor ID
 //   actor_id_size - Size of actor ID binary data
-//   force - Whether to force kill (true = SIGKILL-style hard kill;
-//           false = graceful, the worker exits through INTENDED_USER_EXIT)
+//   force - Whether to force kill. With no_restart=false: true = hard kill
+//           (fast worker death), false = graceful kill chain (the raylet's
+//           KillLocalActor RPC; the worker exits through HandleKillActor and
+//           the exit is recorded as INTENDED_SYSTEM_EXIT). With
+//           no_restart=true the GCS actor-destroy path is a hard kill
+//           regardless of force.
 //   no_restart - Whether the actor should not be restarted
 //   error_out - Output parameter: pointer to error message string (NULL on success)
 //

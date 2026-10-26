@@ -249,7 +249,9 @@ func TestLocalModeKillActorRecordsForce(t *testing.T) {
 
 	actorID := ids.OfActorID(ids.NilJobID(), ids.NilTaskID(), 1)
 
-	// force=false, noRestart=true (the graceful-kill shape).
+	// force=false, noRestart=true: parameter forwarding only — local mode has
+	// no kill chain, so the cluster-side matrix on api.KillActor does not
+	// apply here.
 	require.NoError(t, taskSubmitter.KillActor(actorID, false, true))
 	if taskSubmitter.lastKillForce {
 		t.Error("KillActor(force=false) recorded force=true")

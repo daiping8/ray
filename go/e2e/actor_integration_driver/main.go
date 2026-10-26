@@ -621,7 +621,7 @@ func testActorCreationOptions() error {
 //     a later method call succeeds again on the restarted instance.
 //
 // Both are instance methods on the handle, replacing the package-level
-// KillActor(handle, noRestart) used by testActorKill.
+// KillActor(handle, force, noRestart) used by testActorKill.
 func testActorHandleKill() error {
 	// Part 1: KillWithNoRestart() — actor dies and never comes back.
 	handle, err := api.Actor[*userfuncs.Counter]((*userfuncs.Counter)(nil)).Create(1)

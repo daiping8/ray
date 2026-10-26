@@ -236,7 +236,9 @@ func TestPythonActorHandleKillWithNoRestart(t *testing.T) {
 // force=true kill semantics survive the force parameter being added to
 // KillActor: the shared handle convenience wrappers (Kill / KillWithNoRestart)
 // forward force=true, while an explicit force=false call reaches the submitter
-// verbatim (the graceful-kill path).
+// verbatim. This is api-layer parameter forwarding only — the cluster-side
+// force semantics live in the matrix documented on KillActor, not in this
+// test.
 func TestKillActorConvenienceWrappersDefaultToForce(t *testing.T) {
 	actorID := ids.OfActorID(ids.NilJobID(), ids.NilTaskID(), 5)
 
@@ -271,8 +273,8 @@ func TestKillActorConvenienceWrappersDefaultToForce(t *testing.T) {
 		t.Fatal("KillWithNoRestart() should pass noRestart=true, got false")
 	}
 
-	// An explicit force=false call (the graceful-kill path) must reach the
-	// submitter verbatim.
+	// An explicit force=false call (the graceful kill parameter shape) must
+	// reach the submitter verbatim.
 	ts = newKillTestRuntime()
 	defer clearHandle()
 

@@ -386,9 +386,11 @@ extern "C" int CNativeTaskSubmitter_KillActor(const char *actor_id_data,
     RAY_LOG(DEBUG) << "KillActor called: actor_id=" << actor_id.Hex()
                    << ", force=" << force << ", no_restart=" << no_restart;
 
-    // Kill via the CoreWorker. force=false keeps the graceful path: the raylet
-    // sends the worker SIGTERM and it exits through INTENDED_USER_EXIT.
-    // force=true is the hard kill (kill == crash, pending tasks fail).
+    // Kill via the CoreWorker. With no_restart=false, force=false takes the
+    // graceful kill chain (raylet KillLocalActor RPC -> HandleKillActor,
+    // INTENDED_SYSTEM_EXIT) and force=true is the hard kill; no_restart=true
+    // routes through the GCS actor-destroy path, which is a hard kill
+    // regardless of force.
     auto &ops = ray::go::TaskSubmitterOperations::GetInstance();
     ray::Status status = ops.KillActor(actor_id, force, no_restart);
     if (!status.ok()) {

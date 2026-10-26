@@ -355,11 +355,14 @@ void RuntimeOperations::InitializeCoreWorker(const RuntimeInitializeOptions &opt
   // resources. With a null check_signals the poll never runs, so an
   // intentionally exited actor stays ALIVE and keeps holding its CPUs.
   //
-  // The poll also honors the graceful-exit flag (set by
-  // ray_go_worker_set_graceful_exit_requested on SIGTERM in worker mode):
+  // The poll also honors the graceful-exit flag. It is set by
+  // ray_go_worker_set_graceful_exit_requested when the Go runtime manager
+  // receives a worker-lifecycle SIGTERM from the raylet (idle kill,
+  // placement-group teardown, ray stop, pod graceful termination):
   // returning IntentionalSystemExit makes the core worker exit through the
   // INTENDED_USER_EXIT path (object flush, task wrap-up, correct raylet
-  // accounting) instead of leaving the raylet to report a dead worker.
+  // accounting) instead of leaving the raylet to report a dead worker. This
+  // path is independent of the KillActor chain (raylet KillLocalActor RPC).
   core_options.check_signals = []() -> ray::Status {
     if (CheckSignalsStatus() == kCheckSignalsStatusIntentionalSystemExit) {
       return ray::Status::IntentionalSystemExit("SIGTERM received: graceful actor kill");
