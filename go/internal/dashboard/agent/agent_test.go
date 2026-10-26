@@ -321,8 +321,8 @@ func TestNewGRPCServerBindsAllInterfaces(t *testing.T) {
 // one healthy unary method, exercising the agent's panic recovery end to end.
 type recoveryTestModule struct{}
 
-func (m *recoveryTestModule) Start(context.Context) error          { return nil }
-func (m *recoveryTestModule) RegisterHTTP(*http.ServeMux) error    { return nil }
+func (m *recoveryTestModule) Start(context.Context) error       { return nil }
+func (m *recoveryTestModule) RegisterHTTP(*http.ServeMux) error { return nil }
 func (m *recoveryTestModule) RegisterGRPC(s *grpc.Server) error {
 	s.RegisterService(&recoveryTestServiceDesc, &recoveryTestService{})
 	return nil
