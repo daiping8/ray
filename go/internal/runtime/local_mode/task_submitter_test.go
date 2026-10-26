@@ -220,8 +220,8 @@ func TestLocalModeKillActor(t *testing.T) {
 	require.NoError(t, err)
 	taskExecutor.RegisterActorContext(actorID, NewLocalActorContext(ids.NewUniqueID()))
 
-	// Kill the actor from the driver side (noRestart=true).
-	require.NoError(t, taskSubmitter.KillActor(actorID, true))
+	// Kill the actor from the driver side (force=true, noRestart=true).
+	require.NoError(t, taskSubmitter.KillActor(actorID, true, true))
 
 	// Concurrency group and context must be removed; later calls must fail.
 	if group := taskSubmitter.actorConcurrencyGroupMgr.GetGroup(actorID); group != nil {
@@ -232,6 +232,40 @@ func TestLocalModeKillActor(t *testing.T) {
 	}
 
 	taskSubmitter.Shutdown()
+}
+
+// TestLocalModeKillActorRecordsForce pins that LocalModeTaskSubmitter accepts
+// and records the force flag: local mode has no C++ layer the flag would reach
+// (its kill is always final), so forwarding is observable only through the
+// recorded fields.
+func TestLocalModeKillActorRecordsForce(t *testing.T) {
+	objectStore := localstore.NewLocalModeObjectStore()
+	workerContext := NewLocalModeWorkerContext()
+	functionMgr := function.NewFunctionManager(nil)
+	actorMgr := NewActorConcurrencyGroupManager()
+	taskExecutor := NewLocalModeTaskExecutor(functionMgr, actorMgr, objectStore)
+	taskSubmitter := NewLocalModeTaskSubmitter(objectStore, workerContext, taskExecutor, functionMgr, actorMgr)
+	defer taskSubmitter.Shutdown()
+
+	actorID := ids.OfActorID(ids.NilJobID(), ids.NilTaskID(), 1)
+
+	// force=false, noRestart=true (the graceful-kill shape).
+	require.NoError(t, taskSubmitter.KillActor(actorID, false, true))
+	if taskSubmitter.lastKillForce {
+		t.Error("KillActor(force=false) recorded force=true")
+	}
+	if !taskSubmitter.lastKillNoRestart {
+		t.Error("KillActor(noRestart=true) recorded noRestart=false")
+	}
+
+	// force=true, noRestart=false (the historical kill shape).
+	require.NoError(t, taskSubmitter.KillActor(actorID, true, false))
+	if !taskSubmitter.lastKillForce {
+		t.Error("KillActor(force=true) recorded force=false")
+	}
+	if taskSubmitter.lastKillNoRestart {
+		t.Error("KillActor(noRestart=false) recorded noRestart=true")
+	}
 }
 
 func TestLocalModeActorTask_NamedConcurrencyGroup(t *testing.T) {
@@ -710,7 +744,7 @@ func TestLocalModeTaskSubmitterGetActorHandle(t *testing.T) {
 		actorID, err := ts.CreateActor(funcDesc, nil, &submitter.ActorCreationOptions{MaxConcurrency: 2, MaxPendingCalls: -1})
 		require.NoError(t, err)
 
-		require.NoError(t, ts.KillActor(actorID, true))
+		require.NoError(t, ts.KillActor(actorID, true, true))
 		_, err = ts.GetActorHandle(actorID)
 		assert.Error(t, err)
 	})

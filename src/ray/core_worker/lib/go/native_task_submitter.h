@@ -166,7 +166,9 @@ int CNativeTaskSubmitter_GetActor(const char *name,
 // Parameters:
 //   actor_id_data - Binary data of actor ID
 //   actor_id_size - Size of actor ID binary data
-//   no_restart - Whether the actor should not be restarted (force_kill is always true)
+//   force - Whether to force kill (true = SIGKILL-style hard kill;
+//           false = graceful, the worker exits through INTENDED_USER_EXIT)
+//   no_restart - Whether the actor should not be restarted
 //   error_out - Output parameter: pointer to error message string (NULL on success)
 //
 // Returns:
@@ -174,6 +176,7 @@ int CNativeTaskSubmitter_GetActor(const char *name,
 //   On failure, *error_out points to error message (caller must free).
 int CNativeTaskSubmitter_KillActor(const char *actor_id_data,
                                    int actor_id_size,
+                                   bool force,
                                    bool no_restart,
                                    char **error_out);
 

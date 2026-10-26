@@ -246,7 +246,7 @@ func ExitActor() error {
 // It is an optional capability: submitter.TaskSubmitter stays minimal, and a
 // submitter that can kill an actor satisfies this interface structurally.
 type actorKiller interface {
-	KillActor(actorID ids.ActorID, noRestart bool) error
+	KillActor(actorID ids.ActorID, force, noRestart bool) error
 }
 
 // KillActor kills an actor from the driver side.
@@ -255,13 +255,20 @@ type actorKiller interface {
 // actor is treated as crashed (pending tasks fail), and when noRestart is true
 // the actor is not restarted.
 //
+// With force=true (the default semantics of the handle convenience wrappers)
+// the actor worker is hard-killed (SIGKILL-style: pending tasks fail
+// immediately). With force=false the kill is graceful: the worker receives
+// SIGTERM and exits through the INTENDED_USER_EXIT path, flushing objects and
+// wrapping up tasks so the raylet accounts the actor as intentionally gone.
+//
 // Parameters:
 //   - handle: The handle to the actor to kill.
+//   - force: Whether to force kill instead of letting the worker exit gracefully.
 //   - noRestart: Whether the actor should not be restarted.
 //
 // Returns:
 //   - error: Any error encountered during the kill.
-func KillActor(handle ActorHandle, noRestart bool) error {
+func KillActor(handle ActorHandle, force, noRestart bool) error {
 	if handle == nil {
 		return errors.NewRayInvalidArgumentException("actor handle cannot be nil")
 	}
@@ -291,7 +298,7 @@ func KillActor(handle ActorHandle, noRestart bool) error {
 		return errors.NewRuntimeError("kill_actor", "kill_actor_not_supported")
 	}
 
-	if err := killer.KillActor(actorID, noRestart); err != nil {
+	if err := killer.KillActor(actorID, force, noRestart); err != nil {
 		return fmt.Errorf("failed to kill actor %s: %w", actorID.Hex(), err)
 	}
 	return nil

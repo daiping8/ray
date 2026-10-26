@@ -72,6 +72,12 @@ type LocalModeTaskSubmitter struct {
 	// Reads and writes are serialized through placementGroupMu.
 	placementGroups  map[ids.PlacementGroupID]*submitter.PlacementGroupCreationOptions
 	placementGroupMu sync.Mutex
+
+	// lastKillForce and lastKillNoRestart record the flags of the most recent
+	// KillActor call so tests can observe parameter forwarding: local mode has
+	// no C++ layer the force flag would reach (its kill is always final).
+	lastKillForce     bool
+	lastKillNoRestart bool
 }
 
 // namedActorInfo holds information about a named actor
@@ -351,16 +357,19 @@ func (s *LocalModeTaskSubmitter) GetActorHandle(actorID ids.ActorID) (submitter.
 // mirroring the intentional-exit cleanup path. The actor's concurrency groups
 // and task context are torn down, and any named-actor registration is removed,
 // so later submissions and GetActor lookups report the actor as unavailable.
-// The noRestart parameter is accepted for API compatibility but has no effect
-// (Java's local mode, RayDevRuntime, does not support kill at all).
+// The force and noRestart parameters are accepted for API compatibility but
+// have no effect (Java's local mode, RayDevRuntime, does not support kill at
+// all); both are recorded and logged so tests can observe the forwarding.
 //
 // Note: like every local-mode actor call (executeInGroup waits synchronously),
 // killing an actor that is currently stuck in a task blocks until that task
 // finishes; local mode cannot force-kill a hung task.
-func (s *LocalModeTaskSubmitter) KillActor(actorID ids.ActorID, noRestart bool) error {
+func (s *LocalModeTaskSubmitter) KillActor(actorID ids.ActorID, force, noRestart bool) error {
 	s.removeActorState(actorID)
+	s.lastKillForce = force
+	s.lastKillNoRestart = noRestart
 	log.Log.Info("local-mode actor killed",
-		"actorID", actorID.Hex(), "noRestart", noRestart)
+		"actorID", actorID.Hex(), "force", force, "noRestart", noRestart)
 	return nil
 }
 
@@ -709,5 +718,5 @@ var _ submitter.TaskSubmitter = (*LocalModeTaskSubmitter)(nil)
 // actorKiller capability probed by api.KillActor. Without it, a signature drift
 // would silently turn the public API back into a kill_actor_not_supported error.
 var _ interface {
-	KillActor(ids.ActorID, bool) error
+	KillActor(ids.ActorID, bool, bool) error
 } = (*LocalModeTaskSubmitter)(nil)

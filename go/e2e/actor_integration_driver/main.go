@@ -565,7 +565,7 @@ func testActorCreationOptions() error {
 	// Kill on every exit path: the detached actor survives job teardown by
 	// design, and this test's error returns must not leak its worker (a
 	// leaked worker pins 1 CPU cluster-wide).
-	defer func() { _ = api.KillActor(handle, true) }()
+	defer func() { _ = api.KillActor(handle, true, true) }()
 
 	// The actor must be created and callable with all three options in effect.
 	typed := api.NewActorHandleImpl[int](handle.ID())
@@ -729,7 +729,7 @@ func testActorKill() error {
 	}
 
 	// Kill the actor from the driver side with noRestart=true.
-	if err := api.KillActor(handle, true); err != nil {
+	if err := api.KillActor(handle, true, true); err != nil {
 		return fmt.Errorf("KillActor failed: %w", err)
 	}
 
