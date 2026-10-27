@@ -2,7 +2,11 @@
 
 Each test turns one Go switch on, starts a local cluster, and asserts the
 raygo-launched component actually runs: right binary, right subcommand, alive
-and serving. Gated twice so default dev/CI runs skip instantly: RAYGO_E2E=1
+and serving. Every ray.init pins address="local" so the matrix always starts a
+fresh cluster of its own — on a bare dev machine and equally inside a pod that
+already hosts a live cluster (where the default address resolution would
+connect to the existing cluster instead). Gated twice so default dev/CI runs
+skip instantly: RAYGO_E2E=1
 must be set, and the raygo binary must be resolvable (a machine with the Go
 runtime artifacts built, e.g. via //go:gen_ray_go_pkg).
 
@@ -214,7 +218,7 @@ def test_go_dashboard_agent_runs_and_persists_ports(monkeypatch):
     metrics.
     """
     monkeypatch.setattr(ray_constants, "ENABLE_GO_DASHBOARD_AGENT", True)
-    ctx = ray.init(num_cpus=1)
+    ctx = ray.init(address="local", num_cpus=1)
     try:
         session_dir = ctx.address_info["session_dir"]
         node_id = ctx.address_info["node_id"]
@@ -246,7 +250,7 @@ def test_go_dashboard_head_serves(monkeypatch):
     import requests
 
     monkeypatch.setattr(ray_constants, "ENABLE_GO_DASHBOARD_HEAD", True)
-    ctx = ray.init(num_cpus=1, include_dashboard=True)
+    ctx = ray.init(address="local", num_cpus=1, include_dashboard=True)
     try:
         session_dir = ctx.address_info["session_dir"]
 
@@ -266,7 +270,7 @@ def test_go_dashboard_head_serves(monkeypatch):
 def test_go_log_monitor_stays_running(monkeypatch):
     """The Go log monitor runs against the live cluster and stays up."""
     monkeypatch.setattr(ray_constants, "ENABLE_GO_LOG_MONITOR", True)
-    ctx = ray.init(num_cpus=1)
+    ctx = ray.init(address="local", num_cpus=1)
     try:
         session_dir = ctx.address_info["session_dir"]
 
@@ -289,7 +293,7 @@ def test_go_setup_worker_executes_tasks(monkeypatch):
     chain.
     """
     monkeypatch.setattr(ray_constants, "ENABLE_GO_SETUP_WORKER", True)
-    ctx = ray.init(num_cpus=2)
+    ctx = ray.init(address="local", num_cpus=2)
     try:
         session_dir = ctx.address_info["session_dir"]
 
@@ -335,7 +339,7 @@ def test_go_runtime_env_agent_serves_http(monkeypatch):
     import requests
 
     monkeypatch.setattr(ray_constants, "ENABLE_GO_RUNTIME_ENV_AGENT", True)
-    ctx = ray.init(num_cpus=1)
+    ctx = ray.init(address="local", num_cpus=1)
     try:
         session_dir = ctx.address_info["session_dir"]
         node_id = ctx.address_info["node_id"]
@@ -372,7 +376,7 @@ def test_go_autoscaler_monitor_survives_locally(monkeypatch):
     deployment shape is covered by the real-machine matrix.
     """
     monkeypatch.setattr(ray_constants, "ENABLE_GO_AUTOSCALER_MONITOR", True)
-    ctx = ray.init(num_cpus=1)
+    ctx = ray.init(address="local", num_cpus=1)
     try:
         session_dir = ctx.address_info["session_dir"]
 
