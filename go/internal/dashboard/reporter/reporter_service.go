@@ -85,7 +85,7 @@ func (s *ReporterService) GetTraceback(_ context.Context, req *proto.GetTracebac
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request must not be nil")
 	}
-	success, output := s.profileManager.TraceDump(int(req.GetPid()), req.GetNative())
+	success, output := s.profileManager.TraceDump(int(req.GetPid()), req.GetNative(), req.GetSubprocesses())
 	return &proto.GetTracebackReply{Success: success, Output: output}, nil
 }
 
@@ -94,7 +94,7 @@ func (s *ReporterService) CpuProfiling(_ context.Context, req *proto.CpuProfilin
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request must not be nil")
 	}
-	success, output := s.profileManager.CPUProfile(int(req.GetPid()), req.GetFormat(), int(req.GetDuration()), req.GetNative())
+	success, output := s.profileManager.CPUProfile(int(req.GetPid()), req.GetFormat(), int(req.GetDuration()), req.GetNative(), req.GetSubprocesses())
 	return &proto.CpuProfilingReply{Success: success, Output: output}, nil
 }
 
