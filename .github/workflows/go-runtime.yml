@@ -24,6 +24,7 @@ on:
 jobs:
   fast-hooks:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -37,7 +38,9 @@ jobs:
       # go/proto/BUILD.bazel and go/pkg/version/{version.go,BUILD.bazel}, and
       # black reformats tools/sync/cpp_classify.py and
       # go/examples/test_go_call_python.py. Re-enable them once those files
-      # are cleaned up.
+      # are cleaned up. The config's heavier hooks (mypy, cpplint, shellcheck,
+      # clang-format and friends) are also not part of this gate; the local
+      # pre-commit run stays the full check.
       - name: Run the fast hooks
         run: |
           for hook in trailing-whitespace check-added-large-files \
@@ -47,6 +50,7 @@ jobs:
 
   pure-go:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -64,6 +68,7 @@ jobs:
 
   fleet-dry-run:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       # Trimmed to what a bare runner satisfies. The script's --dry-run still
@@ -83,6 +88,7 @@ jobs:
 
   python-switch-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     continue-on-error: true   # advisory: needs a compiled ray install; see go/CI.md
     steps:
       - uses: actions/checkout@v4
