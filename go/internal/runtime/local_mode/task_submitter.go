@@ -76,8 +76,11 @@ type LocalModeTaskSubmitter struct {
 	// lastKillForce and lastKillNoRestart record the flags of the most recent
 	// KillActor call so tests can observe parameter forwarding: local mode has
 	// no C++ layer the force flag would reach (its kill is always final).
-	lastKillForce     bool
-	lastKillNoRestart bool
+	// Atomic because KillActor runs on the caller's goroutine while tests and
+	// later submissions read from elsewhere, matching the synchronization
+	// contract of the other shared state in this struct.
+	lastKillForce     atomic.Bool
+	lastKillNoRestart atomic.Bool
 }
 
 // namedActorInfo holds information about a named actor
@@ -368,8 +371,8 @@ func (s *LocalModeTaskSubmitter) GetActorHandle(actorID ids.ActorID) (submitter.
 // finishes; local mode cannot force-kill a hung task.
 func (s *LocalModeTaskSubmitter) KillActor(actorID ids.ActorID, force, noRestart bool) error {
 	s.removeActorState(actorID)
-	s.lastKillForce = force
-	s.lastKillNoRestart = noRestart
+	s.lastKillForce.Store(force)
+	s.lastKillNoRestart.Store(noRestart)
 	log.Log.Info("local-mode actor killed",
 		"actorID", actorID.Hex(), "force", force, "noRestart", noRestart)
 	return nil

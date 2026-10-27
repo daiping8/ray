@@ -708,9 +708,9 @@ func testActorHandleKill() error {
 	return nil
 }
 
-// testActorKill verifies the driver-side KillActor API (follow-up 9.1): after
-// KillActor with noRestart=true, the actor worker dies and later method calls
-// fail instead of executing.
+// testActorKill verifies the driver-side KillActor API: after KillActor with
+// noRestart=true, the actor worker dies and later method calls fail instead
+// of executing.
 func testActorKill() error {
 	handle, err := api.Actor[*userfuncs.Counter]((*userfuncs.Counter)(nil)).Create(42)
 	if err != nil {
@@ -757,7 +757,7 @@ func testActorKill() error {
 }
 
 // testActorForceKill verifies the force dimension of the driver-side
-// KillActor API (follow-up 10.1): force=false routes through the raylet's
+// KillActor API: force=false routes through the raylet's
 // graceful KillLocalActor path (the worker's C++ HandleKillActor exits the
 // actor and the exit is recorded as INTENDED_SYSTEM_EXIT), while force=true
 // keeps the hard-kill path. Both arms assert the actor becomes unavailable;

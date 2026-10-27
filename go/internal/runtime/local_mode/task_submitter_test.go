@@ -253,19 +253,19 @@ func TestLocalModeKillActorRecordsForce(t *testing.T) {
 	// no kill chain, so the cluster-side matrix on api.KillActor does not
 	// apply here.
 	require.NoError(t, taskSubmitter.KillActor(actorID, false, true))
-	if taskSubmitter.lastKillForce {
+	if taskSubmitter.lastKillForce.Load() {
 		t.Error("KillActor(force=false) recorded force=true")
 	}
-	if !taskSubmitter.lastKillNoRestart {
+	if !taskSubmitter.lastKillNoRestart.Load() {
 		t.Error("KillActor(noRestart=true) recorded noRestart=false")
 	}
 
 	// force=true, noRestart=false (the historical kill shape).
 	require.NoError(t, taskSubmitter.KillActor(actorID, true, false))
-	if !taskSubmitter.lastKillForce {
+	if !taskSubmitter.lastKillForce.Load() {
 		t.Error("KillActor(force=true) recorded force=false")
 	}
-	if taskSubmitter.lastKillNoRestart {
+	if taskSubmitter.lastKillNoRestart.Load() {
 		t.Error("KillActor(noRestart=false) recorded noRestart=true")
 	}
 }

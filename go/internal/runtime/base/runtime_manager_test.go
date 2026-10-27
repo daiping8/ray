@@ -15,6 +15,7 @@
 package base
 
 import (
+	"os"
 	"syscall"
 	"testing"
 
@@ -157,5 +158,56 @@ func TestHandleShutdownSignalWorkerModeWithoutBridgeFallsBack(t *testing.T) {
 	}
 	if !rt.shutdownCalled {
 		t.Fatal("worker-mode SIGTERM without a bridge must fall back to the Shutdown path")
+	}
+}
+
+// TestShutdownSignalLoopDrainsSecondSigtermDuringGracefulExit pins the
+// repeated-signal contract of the shutdown-hook goroutine: in worker mode the
+// first SIGTERM only requests the deferred graceful core-worker exit, so the
+// loop must keep draining the channel instead of stopping signal delivery.
+// A second SIGTERM inside that window (raylet re-kill, repeated ray stop,
+// Kubernetes termination retry) must be answered by the forced shutdown path,
+// never by the OS default disposition, whose hard kill is exactly the death
+// type the graceful mechanism exists to avoid.
+func TestShutdownSignalLoopDrainsSecondSigtermDuringGracefulExit(t *testing.T) {
+	rt, requests := setupShutdownSignalTest(t, true)
+
+	sigChan := make(chan os.Signal, 2)
+	sigChan <- syscall.SIGTERM
+	sigChan <- syscall.SIGTERM
+
+	runShutdownSignalLoop(sigChan)
+
+	if *requests != 1 {
+		t.Fatalf("graceful exit bridge called %d times, want 1 (only the first signal requests the exit)", *requests)
+	}
+	if !rt.shutdownCalled {
+		t.Fatal("second SIGTERM during the graceful window must escalate to the forced shutdown path")
+	}
+	if _, open := <-sigChan; open {
+		t.Fatal("second SIGTERM must be drained by the loop before signal delivery is stopped")
+	}
+}
+
+// TestShutdownSignalLoopStopsAfterSynchronousShutdown pins the non-draining
+// loop shape: when the first signal runs a synchronous Go-side shutdown
+// (driver mode), no extra signal is consumed and signal delivery is stopped
+// right after the shutdown completes.
+func TestShutdownSignalLoopStopsAfterSynchronousShutdown(t *testing.T) {
+	rt, requests := setupShutdownSignalTest(t, false)
+
+	sigChan := make(chan os.Signal, 1)
+	sigChan <- syscall.SIGTERM
+
+	runShutdownSignalLoop(sigChan)
+
+	if *requests != 0 {
+		t.Fatalf("graceful exit bridge called %d times, want 0", *requests)
+	}
+	if !rt.shutdownCalled {
+		t.Fatal("driver-mode SIGTERM must run the Go-side Shutdown path")
+	}
+	if _, open := <-sigChan; open {
+		t.Fatal("signal channel must be closed after the loop stops delivery")
 	}
 }

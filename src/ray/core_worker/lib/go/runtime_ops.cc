@@ -365,7 +365,7 @@ void RuntimeOperations::InitializeCoreWorker(const RuntimeInitializeOptions &opt
   // path is independent of the KillActor chain (raylet KillLocalActor RPC).
   core_options.check_signals = []() -> ray::Status {
     if (CheckSignalsStatus() == kCheckSignalsStatusIntentionalSystemExit) {
-      return ray::Status::IntentionalSystemExit("SIGTERM received: graceful actor kill");
+      return ray::Status::IntentionalSystemExit("SIGTERM received: graceful worker exit");
     }
     return ray::Status::OK();
   };
