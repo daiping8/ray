@@ -53,19 +53,15 @@ jobs:
           key: precommit-${{ hashFiles('.pre-commit-config.yaml') }}
           restore-keys: |
             precommit-
-      # The fast subset of .pre-commit-config.yaml, run by id. Two hooks from
-      # the config are left out because they fail on files already in the tree
-      # (not touched by this workflow): end-of-file-fixer rewrites
-      # go/proto/BUILD.bazel and go/pkg/version/{version.go,BUILD.bazel}, and
-      # black reformats tools/sync/cpp_classify.py and
-      # go/examples/test_go_call_python.py. Re-enable them once those files
-      # are cleaned up. The config's heavier hooks (mypy, cpplint, shellcheck,
-      # clang-format and friends) are also not part of this gate; the local
-      # pre-commit run stays the full check.
+      # The fast subset of .pre-commit-config.yaml, run by id. The config's
+      # heavier hooks (mypy, cpplint, shellcheck, clang-format and friends) are
+      # also not part of this gate; the local pre-commit run stays the full
+      # check.
       - name: Run the fast hooks
         run: |
           for hook in trailing-whitespace check-added-large-files \
-                      check-ast check-json check-toml ruff prettier buildifier; do
+                      check-ast black check-json check-toml end-of-file-fixer \
+                      ruff prettier buildifier; do
             pre-commit run "$hook" --all-files
           done
 
