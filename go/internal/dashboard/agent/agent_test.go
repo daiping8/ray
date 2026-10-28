@@ -210,8 +210,9 @@ func TestRunDegradesWhenHTTPServerStartFails(t *testing.T) {
 // TestRunFallsBackToDynamicPortWhenListenPortTaken verifies that a taken fixed
 // listen port falls back to a dynamic port instead of degrading to a disabled
 // HTTP server (persisted -1): the Python and Go agents share the fixed default
-// listen port when co-hosted, and the raylet reads the actually bound port from
-// the persisted port files, so the fallback is transparent to it.
+// listen port when co-hosted, and Run registers the actually bound port in GCS
+// InternalKV, which is the only channel carrying the dynamic port — the raylet
+// waits for the persisted port files only when the configured port is 0.
 func TestRunFallsBackToDynamicPortWhenListenPortTaken(t *testing.T) {
 	occupied, err := net.Listen("tcp", ":52365")
 	if err != nil {

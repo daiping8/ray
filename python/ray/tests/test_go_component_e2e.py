@@ -11,8 +11,9 @@ must be set, and the raygo binary must be resolvable (a machine with the Go
 runtime artifacts built, e.g. via //go:gen_ray_go_pkg).
 
 Clusters run under the ambient auth posture: token-auth clusters (the
-ray.init default) are supported — the Go dashboard head and agent load the
-auth token like any Go client.
+ray.init default) are supported — the head loads the auth token like any Go
+client, and the agent's token is attached by its C++ bridge from the
+inherited environment.
 
 The module adapts three environment knobs so a live matrix can run on a dev
 machine as well as on a Go-runtime image:
