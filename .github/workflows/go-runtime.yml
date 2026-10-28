@@ -12,6 +12,7 @@ concurrency:
 # packages, the cross-language tests and the real-cluster lanes) and the one
 # bazel command contributors run locally instead.
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - "go/**"
@@ -58,8 +59,9 @@ jobs:
           go-version: "1.25.x"
           cache-dependency-path: go/go.sum
       - name: Build, vet and test the non-cgo, non-proto packages
+        working-directory: go
         run: |
-          pure=$(go/scripts/list_pure_go_packages.sh)
+          pure=$(scripts/list_pure_go_packages.sh)
           echo "Pure-go packages:"; echo "$pure"
           test -n "$pure"
           go build $(printf '%s\n' $pure)
@@ -97,7 +99,7 @@ jobs:
           python-version: "3.11"
       - name: Install upstream ray, overlay this tree's switch layer, run the launch tests
         run: |
-          pip install --pre ray
+          pip install --pre ray pytest
           site=$(python -c 'import ray, os; print(os.path.dirname(ray.__file__))')
           cp python/ray/_private/services.py      "$site/_private/services.py"
           cp python/ray/_private/ray_constants.py "$site/_private/ray_constants.py"
