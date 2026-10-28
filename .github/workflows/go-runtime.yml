@@ -19,8 +19,19 @@ on:
       - "python/ray/_private/services.py"
       - "python/ray/_private/ray_constants.py"
       - ".github/workflows/go-runtime.yml"
+      - "python/ray/tests/test_logging.py"
+      - "python/ray/tests/test_go_component_e2e.py"
   push:
     branches: [master]
+    # Mirror the pull_request filter so doc-only or unrelated pushes to master
+    # skip this workflow.
+    paths:
+      - "go/**"
+      - "python/ray/_private/services.py"
+      - "python/ray/_private/ray_constants.py"
+      - ".github/workflows/go-runtime.yml"
+      - "python/ray/tests/test_logging.py"
+      - "python/ray/tests/test_go_component_e2e.py"
 
 jobs:
   fast-hooks:
@@ -31,8 +42,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: .pre-commit-config.yaml
       - name: Install pre-commit
         run: pip install pre-commit==3.5.0
+      - name: Cache the pre-commit environments
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: precommit-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: |
+            precommit-
       # The fast subset of .pre-commit-config.yaml, run by id. Two hooks from
       # the config are left out because they fail on files already in the tree
       # (not touched by this workflow): end-of-file-fixer rewrites
@@ -97,6 +117,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
       - name: Install upstream ray, overlay this tree's switch layer, run the launch tests
         run: |
           pip install --pre ray pytest
