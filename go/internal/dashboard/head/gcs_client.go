@@ -132,8 +132,10 @@ func authTokenFromEnv() string {
 
 // defaultAuthTokenPath returns ~/.ray/auth_token, aligned with
 // AuthenticationTokenLoader::GetDefaultTokenPath: HOME, falling back to the
-// user database when HOME is unset. An empty result makes readFirstLine find
-// no token.
+// user database when HOME is unset. The one deviation is logging, not path
+// resolution: the C++ loader warns ("Cannot determine home directory for
+// token storage") when no home resolves, while this code stays silent.
+// Either way an empty result makes readFirstLine find no token.
 func defaultAuthTokenPath() string {
 	home := os.Getenv("HOME")
 	if home == "" {
